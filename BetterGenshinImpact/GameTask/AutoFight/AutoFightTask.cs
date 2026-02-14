@@ -333,7 +333,7 @@ public class AutoFightTask : ISoloTask
                     for (var i = 0; i < combatCommands.Count; i++)
                     {
                         var command = combatCommands[i];
-                        var lastCommand = i == 0 ? command : combatCommands[i - 1];
+                        var lastCommand = combatCommands[(i - 1 + combatCommands.Count) % combatCommands.Count];
                         
                         #region 盾奶位技能优先功能
                         
