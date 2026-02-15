@@ -329,12 +329,15 @@ public class AutoFightTask : ISoloTask
                     var skipFightName = "";
 
                     #endregion
-                    
+
+                    CombatCommand? lastCommand = null;
                     for (var i = 0; i < combatCommands.Count; i++)
                     {
                         var command = combatCommands[i];
-                        var lastCommand = i == 0 ? command : combatCommands[i - 1];
-                        
+                        if (i > 0)
+                        {
+                            lastCommand = combatCommands[i - 1];
+                        }
                         #region 盾奶位技能优先功能
                         
                         var skipModel = guardianAvatar != null && lastFightName != command.Name;

@@ -1,5 +1,7 @@
 ﻿using BetterGenshinImpact.GameTask.AutoFight.Model;
 using BetterGenshinImpact.Helpers;
+using BetterGenshinImpact.Core.Simulator;
+using BetterGenshinImpact.Core.Simulator.Extensions;
 using System;
 using System.Collections.Generic;
 using TimeSpan = System.TimeSpan;
@@ -92,9 +94,9 @@ public class CombatCommand
                 return;
             }
 
-            if (lastCommand != null && lastCommand.Name != Name)
+            if (lastCommand == null || lastCommand.Name != Name)
             {
-                // 上一个命令和当前命令不是同一个角色，直接切换角色
+                // 上一个命令为空（循环开始）或上一个命令和当前命令不是同一个角色，直接切换角色
                 avatar.Switch();
             }
             else
@@ -279,6 +281,11 @@ public class CombatCommand
         }
         else if (Method == Method.KeyPress)
         {
+            // 如果按键是 1-5（角色切换键），先发送 Drop 消除后摇
+            if (Args![0] == "1" || Args[0] == "2" || Args[0] == "3" || Args[0] == "4" || Args[0] == "5")
+            {
+                Simulation.SendInput.SimulateAction(GIActions.Drop);
+            }
             avatar.KeyPress(Args![0]);
         }
         else if (Method == Method.Scroll)

@@ -451,7 +451,7 @@ namespace BetterGenshinImpact.GameTask.AutoFight
 
     public class AutoFightSkill
     {
-        public static async Task EnsureGuardianSkill(Avatar guardianAvatar, CombatCommand command, string lastFightName,
+        public static async Task EnsureGuardianSkill(Avatar guardianAvatar, CombatCommand? command, string lastFightName,
             string guardianAvatarName, bool guardianAvatarHold, int retryCount, CancellationToken ct,bool guardianCombatSkip = false,
             bool burstEnabled = false)
         {
