@@ -24,6 +24,7 @@ public class NotificationEvent(string code, string msg)
     public static readonly NotificationEvent AutoEatStart = new("autoeat.start", "自动吃药启动");
     public static readonly NotificationEvent AutoEatEnd = new("autoeat.end", "自动吃药结束");
     public static readonly NotificationEvent AutoEatInfo = new("autoeat.info", "自动吃药信息");
+    public static readonly NotificationEvent AutoFightDeath = new("autofight.death", "自动战斗角色阵亡");
     
     public string Code { get; private set; } = code;
     public string Msg { get; private set; } = msg;

@@ -18,6 +18,8 @@ using BetterGenshinImpact.GameTask.Common.BgiVision;
 using Vanara.PInvoke;
 using static BetterGenshinImpact.GameTask.Common.TaskControl;
 using BetterGenshinImpact.Core.Config;
+using BetterGenshinImpact.Service.Notification;
+using BetterGenshinImpact.Service.Notification.Model.Enum;
 using BetterGenshinImpact.GameTask.AutoFight.Assets;
 using BetterGenshinImpact.ViewModel.Pages;
 using BetterGenshinImpact.GameTask.AutoGeniusInvokation.Model;
@@ -112,6 +114,8 @@ public class Avatar
         if (Bv.IsInRevivePrompt(region))
         {
             Logger.LogWarning("检测到复苏界面，存在角色被击败，前往七天神像复活");
+            Notify.Event(NotificationEvent.AutoFightDeath).Fail("自动战斗中检测到角色阵亡，正在前往七天神像复活");
+
             // 先打开地图
             Simulation.SendInput.Keyboard.KeyPress(User32.VK.VK_ESCAPE); // NOTE: 此处按下Esc是为了关闭复苏界面，无需改键
             Sleep(600, ct);
@@ -208,6 +212,9 @@ public class Avatar
     /// </summary>
     public void Switch()
     {
+        // 先发送 Drop 消除可能的后摇（无论是否需要切换角色）
+        Simulation.SendInput.SimulateAction(GIActions.Drop);
+        
         var context = new AvatarActiveCheckContext();
         for (var i = 0; i < 30; i++)
         {
