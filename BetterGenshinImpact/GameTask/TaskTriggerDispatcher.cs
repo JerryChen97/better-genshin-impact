@@ -14,6 +14,7 @@ using System.Threading;
 using System.Windows;
 using BetterGenshinImpact.GameTask.Common.BgiVision;
 using BetterGenshinImpact.GameTask.GameLoading;
+using BetterGenshinImpact.Helpers.Extensions;
 using Fischless.GameCapture.Graphics;
 using BetterGenshinImpact.Service;
 using Vanara.PInvoke;
@@ -524,11 +525,11 @@ namespace BetterGenshinImpact.GameTask
                         (int)(MaskWindowConfig.UidCoverRightBottomRect.Width * assetScale),
                         (int)(MaskWindowConfig.UidCoverRightBottomRect.Height * assetScale));
                     mat.Rectangle(rect, Scalar.White, -1);
-                    Cv2.ImWrite(savePath, mat);
+                    mat.SaveImageUnicodeSafe(savePath);
                 }
                 else
                 {
-                    Cv2.ImWrite(savePath, mat);
+                    mat.SaveImageUnicodeSafe(savePath);
                 }
 
                 mat.Dispose();

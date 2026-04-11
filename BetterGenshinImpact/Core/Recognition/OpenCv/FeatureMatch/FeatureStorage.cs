@@ -1,4 +1,5 @@
 ﻿using BetterGenshinImpact.Core.Config;
+using BetterGenshinImpact.Helpers.Extensions;
 using OpenCvSharp;
 using OpenCvSharp.Internal.Vectors;
 using System;
@@ -95,6 +96,6 @@ public class FeatureStorage
             File.Delete(file);
         }
         var descPath = Path.Combine(_rootPath, fileName);
-        descMat.SaveImage(descPath);
+        descMat.SaveImageUnicodeSafe(descPath);
     }
 }

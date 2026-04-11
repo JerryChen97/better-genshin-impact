@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using OpenCvSharp;
 using System.Linq;
 using BetterGenshinImpact.GameTask.Common;
+using BetterGenshinImpact.Helpers.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace BetterGenshinImpact.Core.Script.Dependence;
@@ -438,7 +439,7 @@ public class LimitedFile(string rootPath)
             }
 
             // 使用OpenCV保存图片（默认PNG格式）
-            Cv2.ImWrite(path, mat);
+            mat.SaveImageUnicodeSafe(path);
             return true;
         }
         catch (Exception ex)

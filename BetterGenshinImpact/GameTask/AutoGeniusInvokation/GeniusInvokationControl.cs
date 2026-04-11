@@ -237,7 +237,7 @@ public class GeniusInvokationControl
             _logger.LogWarning("未识别到角色卡牌区域（Y轴）");
             if (OutputImageWhenError)
             {
-                Cv2.ImWrite("log\\character_card_error.jpg", bottomMat);
+                bottomMat.SaveImageUnicodeSafe("log\\character_card_error.jpg");
             }
 
             throw new RetryException("未获取到角色区域");
@@ -295,7 +295,7 @@ public class GeniusInvokationControl
             _logger.LogWarning("未识别到角色卡牌区域（X轴识别点{Count}个）", colLines.Count);
             if (OutputImageWhenError)
             {
-                Cv2.ImWrite("log\\character_card_error.jpg", bottomMat);
+                bottomMat.SaveImageUnicodeSafe("log\\character_card_error.jpg");
             }
 
             throw new RetryException("未获取到角色区域");
@@ -1168,7 +1168,7 @@ public class GeniusInvokationControl
         {
             if (OutputImageWhenError)
             {
-                Cv2.ImWrite("log\\active_character2_no_rects_error.jpg", gray);
+                gray.SaveImageUnicodeSafe("log\\active_character2_no_rects_error.jpg");
             }
         }
 
@@ -1266,7 +1266,7 @@ public class GeniusInvokationControl
                     new Rect(rc.X, rc.Y - halfHeight, rc.Width, rc.Height), Scalar.Green, 1);
             }
 
-            Cv2.ImWrite(fileName, bottomMat);
+            bottomMat.SaveImageUnicodeSafe(fileName);
         }
     }
 
@@ -1299,7 +1299,7 @@ public class GeniusInvokationControl
         {
             _logger.LogWarning("通过OCR识别当前骰子数量结果为空,无影响");
 #if DEBUG
-            Cv2.ImWrite($"log\\dice_count_empty{DateTime.Now:yyyy-MM-dd HH：mm：ss：ffff}.jpg", diceCountMap);
+            diceCountMap.SaveImageUnicodeSafe($"log\\dice_count_empty{DateTime.Now:yyyy-MM-dd HH：mm：ss：ffff}.jpg");
 #endif
             return -10;
         }
@@ -1312,7 +1312,7 @@ public class GeniusInvokationControl
         {
             _logger.LogWarning("通过OCR识别当前骰子结果: {Text}", text);
 #if DEBUG
-            Cv2.ImWrite($"log\\dice_count_error_{DateTime.Now:yyyy-MM-dd HH：mm：ss：ffff}.jpg", diceCountMap);
+            diceCountMap.SaveImageUnicodeSafe($"log\\dice_count_error_{DateTime.Now:yyyy-MM-dd HH：mm：ss：ffff}.jpg");
 #endif
             return -10;
         }

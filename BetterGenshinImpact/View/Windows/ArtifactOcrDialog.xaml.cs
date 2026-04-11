@@ -99,7 +99,7 @@ public partial class ArtifactOcrDialog
             string directory = Path.Combine(AppContext.BaseDirectory, "log/autoArtifactSalvageException");
             Directory.CreateDirectory(directory);
             string filePath = Path.Combine(directory, $"{DateTime.Now:yyyyMMddHHmmss}_GetArtifactStat.png");
-            Cv2.ImWrite(filePath, srcMat);
+            srcMat.SaveImageUnicodeSafe(filePath);
         }
     }
 

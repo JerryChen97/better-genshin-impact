@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -51,5 +52,26 @@ public static class MatExtension
         }
         bitmap.AddDirtyRect(new Int32Rect(0, 0, bitmap.PixelWidth, bitmap.PixelHeight));
         bitmap.Unlock();
+    }
+
+    public static void SaveImageUnicodeSafe(this Mat mat, string fileName, params int[]? prms)
+    {
+        ArgumentNullException.ThrowIfNull(mat);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+
+        var directory = Path.GetDirectoryName(fileName);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var extension = Path.GetExtension(fileName);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            throw new ArgumentException("Image file name must include an extension.", nameof(fileName));
+        }
+
+        var encoded = mat.ImEncode(extension, prms ?? []);
+        File.WriteAllBytes(fileName, encoded);
     }
 }

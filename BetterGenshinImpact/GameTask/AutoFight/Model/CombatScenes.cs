@@ -10,6 +10,7 @@ using BetterGenshinImpact.GameTask.Common.Element.Assets;
 using BetterGenshinImpact.GameTask.Model;
 using BetterGenshinImpact.GameTask.Model.Area;
 using BetterGenshinImpact.Helpers;
+using BetterGenshinImpact.Helpers.Extensions;
 using Compunet.YoloSharp;
 using Compunet.YoloSharp.Data;
 using Microsoft.Extensions.DependencyInjection;
@@ -509,7 +510,7 @@ public class CombatScenes : IDisposable
                 {
                     bool res = RefreshTeamAvatarIndexRectList(imageRegion);
                     _logger.LogWarning("多次识别出战角色失败，尝试刷新角色编号位置，刷新结果:{Result}", res ? "成功" : "失败");
-                    imageRegion.SrcMat.SaveImage(Global.Absolute("log\\refresh_avatar_index_rect.png"));
+                    imageRegion.SrcMat.SaveImageUnicodeSafe(Global.Absolute("log\\refresh_avatar_index_rect.png"));
                     if (res)
                     {
                         context.TotalCheckFailedCount = 0;

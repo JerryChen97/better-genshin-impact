@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using BetterGenshinImpact.Helpers.Extensions;
 using OpenCvSharp;
 using OpenCvSharp.Internal.Vectors;
 
@@ -52,6 +53,6 @@ public class FeatureStorageHelper
 
     public static void SaveDescMat(Mat descMat, string descriptorPath)
     {
-        descMat.SaveImage(descriptorPath);
+        descMat.SaveImageUnicodeSafe(descriptorPath);
     }
 }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using BetterGenshinImpact.Core.Config;
+using BetterGenshinImpact.Helpers.Extensions;
 using OpenCvSharp;
 using System.IO;
 using Microsoft.Extensions.Logging;
@@ -184,14 +185,14 @@ namespace BetterGenshinImpact.GameTask.AutoFishing
                         (int)(MaskWindowConfig.UidCoverRightBottomRect.Width * assetScale),
                         (int)(MaskWindowConfig.UidCoverRightBottomRect.Height * assetScale));
                     mat2.Rectangle(rect, Scalar.White, -1);
-                    Cv2.ImWrite(savePath, mat2);
+                    mat2.SaveImageUnicodeSafe(savePath);
                 }).Start();
             }
             else
             {
                 new Task(() =>
                 {
-                    Cv2.ImWrite(savePath, mat);
+                    mat.SaveImageUnicodeSafe(savePath);
                 }).Start();
             }
         }
