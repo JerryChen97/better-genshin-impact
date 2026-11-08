@@ -15,6 +15,7 @@ namespace Microsoft.Extensions.Logging
         public static void LogInformation(this object logger, string text) { }
         public static readonly List<string> Warnings = new();
         public static void LogWarning(this object logger, string text, string message) { Warnings.Add(message); }
+        public static void LogWarning(this object logger, string text) { Warnings.Add(text); }
     }
 }
 namespace BetterGenshinImpact.GameTask.Common
@@ -76,11 +77,12 @@ namespace BetterGenshinImpact.GameTask
         public static RunnerContext Instance { get; } = new();
         public int StopCount { get; private set; }
         public AutoFight.Model.CombatScenes Scenes { get; } = new();
+        public bool ScenesMissing; // Production returns null when the party cannot be recognized.
         public Func<CancellationToken, Task>? BeforeGetScenes;
         public async Task<AutoFight.Model.CombatScenes?> GetCombatScenes(CancellationToken ct)
         {
             if (BeforeGetScenes is not null) await BeforeGetScenes(ct);
-            return Scenes;
+            return ScenesMissing ? null : Scenes;
         }
         public async Task StopAutoPickRunTask(Func<Task> task)
         {
@@ -113,6 +115,22 @@ namespace BetterGenshinImpact.GameTask.AutoFight.Model
         }
         public Task WaitSkillCd(CancellationToken token) => Wait(token);
         public void AfterUseSkill() { }
+    }
+    // Production Avatar.RecoverFromRevivePrompt closes the prompt, recovers at the statue and always throws:
+    // the verified revive retry inside a point-policy recovery scope, otherwise the plain RetryException.
+    public static class Avatar
+    {
+        public static int RecoverCalls;
+        public static CancellationToken RecoverToken;
+        public static void RecoverFromRevivePrompt(CancellationToken ct)
+        {
+            RecoverCalls++;
+            RecoverToken = ct;
+            var retry = new AutoGeniusInvokation.Exception.RetryException("检测到复苏界面，存在角色被击败，前往七天神像复活");
+            if (PointLootRecoveryScope.IsActive)
+                PointLootRecoveryScope.RecoverThenRetry(() => { }, () => true, ct, defeated: true, retry);
+            throw retry;
+        }
     }
 }
 namespace BetterGenshinImpact.Core.Input

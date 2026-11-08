@@ -23,6 +23,12 @@ async Task Throws<T>(Func<Task> work) where T : Exception
     try { await work(); } catch (T) { passed++; return; }
     throw new Exception("Expected " + typeof(T).Name);
 }
+async Task<T> Catch<T>(Func<Task> work) where T : Exception
+{
+    try { await work(); } catch (T e) { passed++; return e; }
+    throw new Exception("Expected " + typeof(T).Name);
+}
+var warnings = Microsoft.Extensions.Logging.LoggingExtensions.Warnings;
 async Task<string> Context(PointLootSession session)
 {
     for (var n = 0; n < 200; n++)
@@ -202,9 +208,17 @@ using (var session = Session())
 }
 using (var session = Session())
 {
+    // An unstable UI revokes only this point's gather and window; it is not a route failure.
     var attempt = session.BeginFight(1);
     BetterGenshinImpact.GameTask.Common.BgiVision.Bv.MainUi = false;
-    await Throws<InvalidOperationException>(() => PointLootGatherTask.RunAsync(session, attempt, default));
+    warnings.Clear();
+    var holds = TaskControl.HoldCalls;
+    await PointLootGatherTask.RunAsync(session, attempt, default);
+    Check(TaskControl.HoldCalls == holds && !session.CanGather(attempt) && !session.CanOpenWindow(attempt),
+        "Unstable UI revokes this attempt instead of failing the route");
+    Check(warnings.Contains("逐点拾取：主界面未稳定，放弃本点的聚拢和拾取窗口，继续路线"), "Unstable UI is reported");
+    await session.WaitForWindowAsync(attempt, default);
+    Check(session.GetContextJson() == "null", "Revoked attempt opens no pickup window");
     BetterGenshinImpact.GameTask.Common.BgiVision.Bv.MainUi = true;
     session.EndFight(attempt);
 }
@@ -213,10 +227,44 @@ using (var session = Session())
 {
     var attempt = session.BeginFight(1);
     RunnerContext.Instance.Scenes.Avatar.Switch = () => { session.SetEnabled(false); return false; };
+    warnings.Clear();
     await PointLootGatherTask.RunAsync(session, attempt, default);
     Check(!session.CanGather(attempt), "TrySwitch cancelled false is optional-gather cancellation, not route failure");
+    Check(warnings.Count == 0, "A revoked switch is a cancellation, not a reported switch failure");
     RunnerContext.Instance.Scenes.Avatar.Switch = null;
     session.EndFight(attempt);
+}
+// Optional gather failures skip only the gather; the confirmed pickup window still opens.
+using (var session = Session())
+{
+    RunnerContext.Instance.ScenesMissing = true;
+    warnings.Clear();
+    var holdBefore = TaskControl.HoldCalls;
+    var run = session.RunFightAsync(1, default, () => Task.CompletedTask,
+        attempt => PointLootGatherTask.RunAsync(session, attempt, default));
+    if (run.IsFaulted) await run; // Preserve the native exception in a pre-fix reproduction.
+    var token = await Context(session);
+    Check(TaskControl.HoldCalls == holdBefore && warnings.Contains("逐点拾取：无法识别当前队伍，跳过聚拢"),
+        "Unrecognized party skips only the gather");
+    Check(session.Complete(token), "Unrecognized party still opens the pickup window");
+    await run;
+    RunnerContext.Instance.ScenesMissing = false;
+}
+using (var session = Session())
+{
+    RunnerContext.Instance.Scenes.Avatar.Switch = () => false; // e.g. Kazuha down or the switch key lost; attempt still live
+    warnings.Clear();
+    var holdBefore = TaskControl.HoldCalls;
+    var run = session.RunFightAsync(1, default, () => Task.CompletedTask,
+        attempt => PointLootGatherTask.RunAsync(session, attempt, default));
+    if (run.IsFaulted) await run;
+    var token = await Context(session);
+    Check(TaskControl.HoldCalls == holdBefore && warnings.Contains("逐点拾取：切换枫原万叶失败，跳过聚拢"),
+        "Failed Kazuha switch skips only the gather");
+    Check(session.Complete(token), "Failed Kazuha switch still opens the pickup window");
+    await run;
+    Check(!RunnerContext.Instance.Scenes.Token.CanBeCanceled, "Failed switch restores the parent cancellation context");
+    RunnerContext.Instance.Scenes.Avatar.Switch = null;
 }
 using (var session = Session())
 {
@@ -382,24 +430,54 @@ using (var session = Session())
     await run;
     RunnerContext.Instance.Scenes.KazuhaPresent = true;
 }
-using (var session = Session())
+using (var session = Session(30000))
 {
     Bv.MainUi = false;
     Bv.MainUiReads = 0;
     var holdBefore = TaskControl.HoldCalls;
-    await Throws<InvalidOperationException>(() => session.RunFightAsync(1, default, () => Task.CompletedTask,
-        attempt => PointLootGatherTask.RunAsync(session, attempt, default)));
+    var run = session.RunFightAsync(1, default, () => Task.CompletedTask,
+        attempt => PointLootGatherTask.RunAsync(session, attempt, default));
+    Check(await Task.WhenAny(run, Task.Delay(5000)) == run, "Unknown UI ends the point without waiting for a pickup window");
+    await run;
     Check(Bv.MainUiReads == 20 && TaskControl.HoldCalls == holdBefore,
         "Unknown UI stops after bounded observations without gather input");
     Check(session.GetContextJson() == "null", "Persistent unknown UI never opens a token");
     Bv.MainUi = true;
 }
 using (var session = Session())
+using (var routeCts = new CancellationTokenSource())
 {
+    // A revive prompt is a defeat: the native statue recovery runs with the route token and ends with a retry.
     Bv.RevivePrompt = true;
-    await Throws<InvalidOperationException>(() => session.RunFightAsync(1, default, () => Task.CompletedTask,
-        attempt => PointLootGatherTask.RunAsync(session, attempt, default)));
-    Check(session.GetContextJson() == "null", "Revive prompt cannot be reinterpreted as a stable main UI");
+    var recoveries = BetterGenshinImpact.GameTask.AutoFight.Model.Avatar.RecoverCalls;
+    var holdBefore = TaskControl.HoldCalls;
+    await Throws<BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception.RetryException>(() =>
+        session.RunFightAsync(1, routeCts.Token, () => Task.CompletedTask,
+            attempt => PointLootGatherTask.RunAsync(session, attempt, routeCts.Token)));
+    Check(BetterGenshinImpact.GameTask.AutoFight.Model.Avatar.RecoverCalls == recoveries + 1 &&
+          BetterGenshinImpact.GameTask.AutoFight.Model.Avatar.RecoverToken == routeCts.Token,
+        "Revive prompt enters the native statue recovery with the route token");
+    Check(TaskControl.HoldCalls == holdBefore && session.GetContextJson() == "null",
+        "Revive prompt cannot be reinterpreted as a stable main UI");
+    Bv.RevivePrompt = false;
+}
+using (var session = Session())
+using (var routeCts = new CancellationTokenSource())
+using (PointLootRecoveryScope.Enter())
+{
+    // Inside a point-policy route the recovery ends with the verified revive retry, which PathExecutor retries
+    // and, once exhausted, skips per point (revive-retry-exhausted) instead of aborting the whole group.
+    var holdBefore = TaskControl.HoldCalls;
+    TaskControl.BeforeDelay = () => { if (TaskControl.HoldCalls > holdBefore) Bv.RevivePrompt = true; };
+    var retry = await Catch<PointLootRouteRetryException>(() =>
+        session.RunFightAsync(1, routeCts.Token, () => Task.CompletedTask,
+            attempt => PointLootGatherTask.RunAsync(session, attempt, routeCts.Token)));
+    Check(retry.Reason == PointLootRouteFailureReason.ReviveRetryExhausted &&
+          PointLootRouteFailureException.CodeFor(retry.Reason) == "revive-retry-exhausted",
+        "A defeat seen after gathering is the typed revive retry");
+    Check(TaskControl.HoldCalls == holdBefore + 1 && session.GetContextJson() == "null",
+        "Post-gather revive prompt opens no pickup window");
+    TaskControl.BeforeDelay = null;
     Bv.RevivePrompt = false;
 }
 using (var session = Session())
@@ -438,12 +516,14 @@ using (var routeCts = new CancellationTokenSource())
     TaskControl.BeforeDelay = null;
     Bv.MainUi = true;
 }
-using (var session = Session())
+using (var session = Session(30000))
 {
     RunnerContext.Instance.Scenes.KazuhaPresent = false;
     RunnerContext.Instance.BeforeGetScenes = _ => { Bv.MainUi = false; return Task.CompletedTask; };
-    await Throws<InvalidOperationException>(() => session.RunFightAsync(1, default, () => Task.CompletedTask,
-        attempt => PointLootGatherTask.RunAsync(session, attempt, default)));
+    var run = session.RunFightAsync(1, default, () => Task.CompletedTask,
+        attempt => PointLootGatherTask.RunAsync(session, attempt, default));
+    Check(await Task.WhenAny(run, Task.Delay(5000)) == run, "Lost UI after party lookup ends the point without a window wait");
+    await run;
     Check(session.GetContextJson() == "null", "No-Kazuha lookup that loses UI context cannot expose a window");
     RunnerContext.Instance.Scenes.KazuhaPresent = true;
     RunnerContext.Instance.BeforeGetScenes = null;

@@ -155,6 +155,11 @@ foreach (var reason in new[] { PointLootRouteFailureReason.RouteStuck, PointLoot
 var genericRetry = new RetryException("unclassified recovery failure");
 try { PointLootRouteRetryException.ThrowIfExhausted(genericRetry, true, true, default); throw new Exception("Expected original retry"); }
 catch (RetryException failure) { Check(ReferenceEquals(genericRetry, failure), "Unknown retry propagates same instance"); }
+foreach (var reason in Enum.GetValues<PointLootRouteFailureReason>())
+    Check(PointLootRouteFailureException.ReasonFor(PointLootRouteFailureException.CodeFor(reason)) == reason,
+        "Skip codes map back to their closed reason: " + reason);
+try { PointLootRouteFailureException.ReasonFor("unclassified"); throw new Exception("Expected the closed code set"); }
+catch (ArgumentOutOfRangeException) { Check(true, "Unknown skip code is rejected"); }
 
 // Actual strict recovery helper: no inferred success when recovery, UI or cancellation fails.
 var recovered = 0;

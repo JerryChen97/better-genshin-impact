@@ -207,6 +207,30 @@ public partial class PathExecutor
         return decision.Outcome;
     }
 
+    /// <summary>
+    /// 逐点跳过的重放会经过仍存活的被跳过遭遇。重放过的段里普通重试（如低血量回七天神像）在最后一次尝试耗尽时，
+    /// 确认已回到主界面后，以触发本次重放的跳过原因作为本地失败结束本路线：这正是不做逐点跳过时本路线本来的结果
+    /// （不写 CD），而不是升级为整组中止。本段没有重放过，或未能回到主界面时不处理，仍按原契约。
+    /// </summary>
+    private async Task ThrowIfReplayRetryExhaustedAsync(RetryException retryException)
+    {
+        if (PointLootSession is null || !PointSkipEnabled ||
+            _pointSkip.ReplayFailureCode(CurWaypoints.Item1) is not { } code)
+        {
+            return;
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (!await Bv.WaitForMainUi(ct, 5))
+        {
+            return;
+        }
+
+        Logger.LogWarning("逐点跳过：重放未能完成（{Message}），按跳过前的失败（{Code}）结束本路线", retryException.Message, code);
+        throw new PointLootRouteFailureException(PointLootRouteFailureException.ReasonFor(code),
+            "逐点跳过后的重放未能完成：" + retryException.Message);
+    }
+
     public async Task Pathing(PathingTask task)
     {
         // SuspendableDictionary;
@@ -388,6 +412,10 @@ public partial class PathExecutor
                             i = -1; // 重放后的剩余路径重新获得完整的重试次数（受每条路线跳过上限约束）
                             continue;
                         }
+                    }
+                    if (i == RetryTimes - 1 && retryException is not PointLootRouteRetryException)
+                    {
+                        await ThrowIfReplayRetryExhaustedAsync(retryException);
                     }
                     PointLootRouteRetryException.ThrowIfExhausted(retryException,
                         PointLootSession is not null, i == RetryTimes - 1, ct);

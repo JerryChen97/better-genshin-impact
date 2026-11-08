@@ -145,11 +145,7 @@ public class Avatar
     {
         if (Bv.IsInRevivePrompt(region))
         {
-            Logger.LogWarning("检测到复苏界面，存在角色被击败，前往七天神像复活");
-            // 先打开地图
-            InputHub.Foreground.Keyboard.KeyPress(User32.VK.VK_ESCAPE); // NOTE: 此处按下Esc是为了关闭复苏界面，无需改键
-            Sleep(600, ct);
-            TpForRecover(ct, new RetryException("检测到复苏界面，存在角色被击败，前往七天神像复活"), defeated: true);
+            RecoverFromRevivePrompt(ct);
         }
         else if (AutoFightParam.SwimmingEnabled && AutoFightTask.FightStatusFlag && SwimmingConfirm(region))
         {
@@ -243,6 +239,19 @@ public class Avatar
             connectivity: PixelConnectivity.Connectivity4, ltype: MatType.CV_32S);
 
         return numLabels > 1;
+    }
+
+    /// <summary>
+    /// 已识别到复苏界面：关闭复苏界面并前往七天神像复活。总是以 RetryException 结束
+    /// （逐点策略路线中为已验证的 PointLootRouteRetryException）。
+    /// </summary>
+    internal static void RecoverFromRevivePrompt(CancellationToken ct)
+    {
+        Logger.LogWarning("检测到复苏界面，存在角色被击败，前往七天神像复活");
+        // 先打开地图
+        InputHub.Foreground.Keyboard.KeyPress(User32.VK.VK_ESCAPE); // NOTE: 此处按下Esc是为了关闭复苏界面，无需改键
+        Sleep(600, ct);
+        TpForRecover(ct, new RetryException("检测到复苏界面，存在角色被击败，前往七天神像复活"), defeated: true);
     }
 
     /// <summary>

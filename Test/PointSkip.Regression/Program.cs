@@ -89,10 +89,13 @@ var route = new List<Pt> { TP(0, 0, 0), PP(1, 10, 0), PP(2, 20, 0), FP(3, 30, 0)
 {
     var t = new PointSkipTracker();
     Check(t.ClampRecordIndex(0, 2) == 2 && !t.HasFloor(0), "No floor before any skip");
+    Check(t.ReplayFailureCode(0) is null, "No replay code before any skip");
     var a = t.Apply(0, route, 3, "revive-retry-exhausted");
     Check(a.Outcome == Outcome.Resume && a.ResumeIndex == 4 && t.SkipEvents == 1, "First skip resumes after #3");
     Check(t.IsDone(3) && t.Skipped.Count == 1 && t.Skipped[0] == (3, "revive-retry-exhausted"), "#3 recorded as skipped with its reason");
     Check(t.HasFloor(0) && t.ClampRecordIndex(0, 2) == 4 && t.ClampRecordIndex(0, 6) == 6, "Replay retries never record a point before the floor");
+    Check(t.ReplayFailureCode(0) == "revive-retry-exhausted" && t.ReplayFailureCode(1) is null,
+        "A replayed segment remembers the skip that started its replay");
     var before = t.Apply(0, route, 2, "route-stuck");
     Check(before.Outcome == Outcome.NotAllowed && before.Reason == "replay-before-floor", "A failure on the replay approach never skips a new, untried fight");
     Check(t.Skipped.Count == 1 && t.SkipEvents == 1, "Replay-before-floor records nothing");
@@ -123,12 +126,27 @@ var route = new List<Pt> { TP(0, 0, 0), PP(1, 10, 0), PP(2, 20, 0), FP(3, 30, 0)
     // Floors are per segment; finishing a segment never consumes the budget when everything is done.
     var t = new PointSkipTracker();
     t.Apply(0, route, 3, "route-stuck");
-    Check(t.ClampRecordIndex(1, 2) == 2 && !t.HasFloor(1), "Another segment has no floor");
+    Check(t.ClampRecordIndex(1, 2) == 2 && !t.HasFloor(1) && t.ReplayFailureCode(1) is null, "Another segment has no floor");
+    var tl = new PointSkipTracker();
+    var finish = tl.Apply(0, route, 8, "route-stuck");
+    Check(finish.Outcome == Outcome.FinishSegment && !tl.HasFloor(0) && tl.ReplayFailureCode(0) is null,
+        "Finishing a segment starts no replay");
     var t3 = new PointSkipTracker();
     foreach (var o in new[] { 3, 6, 8 }) t3.MarkCompleted(o);
     var done = t3.Apply(0, route, 8, "route-stuck");
     Check(done.Outcome == Outcome.FinishSegment && done.SkippedIndices.Count == 0 && t3.SkipEvents == 0, "Failure after all fights: finish segment, no skip event");
     Throws<ArgumentNullException>(() => t3.Apply(0, null!, 0, "x"), "Null points rejected");
+}
+{
+    // Pinned boundaries: a failure exactly at the floor is past the skipped encounter; a second replay raises
+    // the floor and its code; completed (not skipped) fights are done, plain path points are not.
+    var t = new PointSkipTracker();
+    t.Apply(0, route, 3, "revive-retry-exhausted");
+    var atFloor = t.Apply(0, route, 4, "route-stuck");
+    Check(atFloor.Outcome == Outcome.Resume && Ix(atFloor) == "6" && atFloor.ResumeIndex == 7, "A failure at the floor index is past the skipped encounter");
+    Check(t.ClampRecordIndex(0, 5) == 7 && t.ReplayFailureCode(0) == "route-stuck", "A second replay raises the floor and updates the replay code");
+    t.MarkCompleted(8);
+    Check(t.IsDone(8) && t.Completed.Contains(8) && !t.IsDone(5), "Completed fights are done; plain path points are not");
 }
 
 Console.WriteLine(JsonSerializer.Serialize(new { passed, failed = 0, scope = "Linked production PointSkipPlanner.Decide + PointSkipTracker; pure decision and executor state logic." }));

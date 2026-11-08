@@ -187,6 +187,15 @@ internal sealed class PointLootSession : IDisposable
         lock (_gate) RevokeLocked();
     }
 
+    /// <summary>Revokes only this attempt. An attempt that is no longer current has already been revoked.</summary>
+    internal void Revoke(Attempt attempt)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_current, attempt)) RevokeLocked();
+        }
+    }
+
     private void RevokeLocked()
     {
         var attempt = _current;

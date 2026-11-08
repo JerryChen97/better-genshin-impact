@@ -34,6 +34,16 @@ internal sealed class PointLootRouteFailureException : Exception
         PointLootRouteFailureReason.ReviveRetryExhausted => "revive-retry-exhausted",
         _ => throw new ArgumentOutOfRangeException(nameof(reason))
     };
+
+    /// <summary>Inverse of <see cref="CodeFor"/> for the closed code set (per-point skip records codes).</summary>
+    internal static PointLootRouteFailureReason ReasonFor(string code) => code switch
+    {
+        "position-unrecognized" => PointLootRouteFailureReason.PositionUnrecognized,
+        "target-too-far" => PointLootRouteFailureReason.TargetTooFar,
+        "route-stuck" => PointLootRouteFailureReason.RouteStuck,
+        "revive-retry-exhausted" => PointLootRouteFailureReason.ReviveRetryExhausted,
+        _ => throw new ArgumentOutOfRangeException(nameof(code))
+    };
 }
 
 /// <summary>Retains normal route retries; only the executor may promote the final attempt.</summary>

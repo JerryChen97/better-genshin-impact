@@ -16,6 +16,7 @@ internal sealed class PointSkipTracker
     private readonly HashSet<int> _skippedSet = new();
     private readonly List<(int OriginalIndex, string Code)> _skipped = new();
     private readonly Dictionary<int, int> _floorBySegment = new();
+    private readonly Dictionary<int, string> _replayCodeBySegment = new();
 
     internal int SkipEvents { get; private set; }
     internal IReadOnlyCollection<int> Completed => _completed;
@@ -35,6 +36,13 @@ internal sealed class PointSkipTracker
         _floorBySegment.TryGetValue(segment, out var floor) ? Math.Max(index, floor) : index;
 
     internal bool HasFloor(int segment) => _floorBySegment.ContainsKey(segment);
+
+    /// <summary>
+    /// The local-failure code of the latest skip that started a replay of <paramref name="segment"/>, or null when
+    /// the segment never replayed. A replay that itself runs out of unclassified retries ends the route with this
+    /// code: the result the route would have had without the skip.
+    /// </summary>
+    internal string? ReplayFailureCode(int segment) => _replayCodeBySegment.GetValueOrDefault(segment);
 
     /// <summary>
     /// Decide and record a skip for a failure at <paramref name="failingIndex"/> in <paramref name="segment"/>.
@@ -70,7 +78,10 @@ internal sealed class PointSkipTracker
         }
 
         if (decision.Outcome == PointSkipPlanner.Outcome.Resume)
+        {
             _floorBySegment[segment] = decision.ResumeIndex;
+            _replayCodeBySegment[segment] = code;
+        }
         return decision;
     }
 }

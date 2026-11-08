@@ -26,25 +26,36 @@ internal static class PointLootGatherTask
         CombatScenes? scenes = null;
         try
         {
-            scenes = await RunnerContext.Instance.GetCombatScenes(linked.Token)
-                ?? throw new InvalidOperationException("Cannot identify the current party for point loot.");
-            var picker = scenes.SelectAvatar("枫原万叶");
-            if (picker is not null)
+            // Gathering is optional: a party or Kazuha-switch failure skips only the gather, never the route.
+            // The pickup window still follows the post-gather main-UI check below.
+            scenes = await RunnerContext.Instance.GetCombatScenes(linked.Token);
+            var picker = scenes?.SelectAvatar("枫原万叶");
+            if (scenes is null)
+            {
+                Logger.LogWarning("逐点拾取：无法识别当前队伍，跳过聚拢");
+            }
+            else if (picker is not null)
             {
                 scenes.BeforeTask(linked.Token);
                 linked.Token.ThrowIfCancellationRequested();
                 InputHub.ReleaseAll();
                 var switched = picker.TrySwitch(10, ct);
                 linked.Token.ThrowIfCancellationRequested();
-                if (!switched) throw new InvalidOperationException("Could not switch to Kazuha for point loot.");
-                await Delay(100, linked.Token);
-                await picker.WaitSkillCd(linked.Token);
-                linked.Token.ThrowIfCancellationRequested();
-                Logger.LogInformation("逐点拾取：使用当前队伍的 枫原万叶-长E 聚拢");
-                await SimulateHoldElementalSkillAsync(800, linked.Token);
-                await SimulateMouseLeftClickLoopAsync(6, linked.Token);
-                await Delay(1500, linked.Token);
-                picker.AfterUseSkill();
+                if (switched)
+                {
+                    await Delay(100, linked.Token);
+                    await picker.WaitSkillCd(linked.Token);
+                    linked.Token.ThrowIfCancellationRequested();
+                    Logger.LogInformation("逐点拾取：使用当前队伍的 枫原万叶-长E 聚拢");
+                    await SimulateHoldElementalSkillAsync(800, linked.Token);
+                    await SimulateMouseLeftClickLoopAsync(6, linked.Token);
+                    await Delay(1500, linked.Token);
+                    picker.AfterUseSkill();
+                }
+                else
+                {
+                    Logger.LogWarning("逐点拾取：切换枫原万叶失败，跳过聚拢");
+                }
             }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && linked.IsCancellationRequested)
@@ -76,15 +87,21 @@ internal static class PointLootGatherTask
         {
             ct.ThrowIfCancellationRequested();
             if (!session.CanGather(attempt) && !session.CanOpenWindow(attempt)) return false;
+            bool revivePrompt;
             using (var capture = CaptureToRectArea())
             {
-                if (Bv.IsInRevivePrompt(capture))
-                    throw new InvalidOperationException("Point loot stopped because a revive prompt is visible.");
-                consecutiveMainUi = Bv.IsInMainUi(capture) ? consecutiveMainUi + 1 : 0;
+                revivePrompt = Bv.IsInRevivePrompt(capture);
+                consecutiveMainUi = !revivePrompt && Bv.IsInMainUi(capture) ? consecutiveMainUi + 1 : 0;
             }
+            // Same as a defeat during combat: close the prompt, recover at the statue with the route token
+            // (never the optional gather budget), and end with the verified revive retry. Always throws.
+            if (revivePrompt) Avatar.RecoverFromRevivePrompt(ct);
             if (consecutiveMainUi >= 2) return true;
             if (observation < 19) await Delay(100, ct);
         }
-        throw new InvalidOperationException("Point loot stopped because the main UI did not become stable.");
+        // Never gather or open an F window on an unknown UI; the route itself continues.
+        Logger.LogWarning("逐点拾取：主界面未稳定，放弃本点的聚拢和拾取窗口，继续路线");
+        session.Revoke(attempt);
+        return false;
     }
 }
