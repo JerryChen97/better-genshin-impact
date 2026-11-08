@@ -107,6 +107,14 @@ public partial class PathExecutor
     //跳过除走路径以外的操作
     private bool _skipOtherOperations = false;
 
+    // 逐点跳过（仅按点策略路线的新接口启用）：一个战斗点重试耗尽或定位失败时只跳过该点，
+    // 传送到下一个未完成战斗点附近继续本段路径。记录本次运行已完成/被跳过的原始点位序号。
+    internal bool PointSkipEnabled { get; set; }
+    private readonly HashSet<int> _completedFightPoints = new();
+    private readonly List<(int OriginalIndex, string Code)> _skippedFightPoints = new();
+    internal IReadOnlyCollection<int> CompletedFightPoints => _completedFightPoints;
+    internal IReadOnlyList<(int OriginalIndex, string Code)> SkippedFightPoints => _skippedFightPoints;
+
     // 最近一次获取派遣奖励的时间
     private DateTime _lastGetExpeditionRewardsTime = DateTime.MinValue;
 
@@ -141,6 +149,77 @@ public partial class PathExecutor
         _skipOtherOperations = true;
         RecordWaypoints = CurWaypoints;
         RecordWaypoint = CurWaypoint;
+    }
+
+    private enum PointSkipOutcome
+    {
+        NotAllowed,
+        FinishSegment,
+        Resume
+    }
+
+    private PointSkipPlanner.Plan? _pendingResumePlan;
+
+    private List<PointSkipPlanner.Node> ToPointSkipNodes(List<WaypointForTrack> waypoints) =>
+        waypoints.Select(w =>
+        {
+            var isFight = w.Action == ActionEnum.Fight.Code;
+            return new PointSkipPlanner.Node(isFight, isFight && _completedFightPoints.Contains(w.OriginalPointIndex), w.GameX, w.GameY);
+        }).ToList();
+
+    /// <summary>
+    /// 当前战斗点无法完成时决定能否只跳过该点：本段已无未完成战斗点则结束本段；
+    /// 否则记录跳过并准备传送到下一个未完成战斗点附近接续。超过每条路线的跳过上限时不允许。
+    /// </summary>
+    private PointSkipOutcome TrySkipFailedFightPoint(List<WaypointForTrack> waypoints, string code)
+    {
+        _pendingResumePlan = null;
+        if (PointLootSession is null || !PointSkipEnabled)
+        {
+            return PointSkipOutcome.NotAllowed;
+        }
+
+        ct.ThrowIfCancellationRequested();
+        var plan = PointSkipPlanner.Create(ToPointSkipNodes(waypoints), CurWaypoint.Item1);
+        if (!plan.HasFailedFight)
+        {
+            Logger.LogWarning("逐点跳过：本段战斗点均已完成，结束本段剩余路径");
+            _skipOtherOperations = false;
+            return PointSkipOutcome.FinishSegment;
+        }
+
+        if (_skippedFightPoints.Count >= PointSkipPlanner.MaxSkipsPerRoute)
+        {
+            Logger.LogWarning("逐点跳过：本路线已跳过 {Count} 个战斗点，达到上限，放弃本路线剩余部分", _skippedFightPoints.Count);
+            return PointSkipOutcome.NotAllowed;
+        }
+
+        var failed = waypoints[plan.FailedFight];
+        _skippedFightPoints.Add((failed.OriginalPointIndex, code));
+        PointLootSession?.Revoke();
+        _skipOtherOperations = false;
+        if (!plan.HasNextFight)
+        {
+            Logger.LogWarning("逐点跳过：跳过原始点位 #{Index}（{Code}），本段之后没有战斗点，结束本段", failed.OriginalPointIndex, code);
+            return PointSkipOutcome.FinishSegment;
+        }
+
+        Logger.LogWarning("逐点跳过：跳过原始点位 #{Index}（{Code}），转往原始点位 #{Next}",
+            failed.OriginalPointIndex, code, waypoints[plan.NextFight].OriginalPointIndex);
+        _pendingResumePlan = plan;
+        return PointSkipOutcome.Resume;
+    }
+
+    /// <summary>传送到离目标路径点最近的传送点（非强制），返回传送点的原神坐标。</summary>
+    private async Task<(double X, double Y)> TeleportNearForPointSkip(WaypointForTrack target)
+    {
+        var tpTask = new TpTask(ct);
+        var (tpX, tpY) = await tpTask.Tp(target.GameX, target.GameY, target.MapName, false);
+        var (tprX, tprY) = MapManager.GetMap(target.MapName, target.MapMatchMethod)
+            .ConvertGenshinMapCoordinatesToImageCoordinates(new Point2f((float)tpX, (float)tpY));
+        Navigation.SetPrevPosition(tprX, tprY); // 通过传送点位置直接进行局部特征匹配
+        await Delay(500, ct);
+        return (tpX, tpY);
     }
 
     public async Task Pathing(PathingTask task)
@@ -181,22 +260,32 @@ public partial class PathExecutor
         foreach (var waypoints in waypointsList) // 按传送点分割的路径
         {
             CurWaypoints = (waypointsList.FindIndex(wps => wps == waypoints), waypoints);
+            var startIndex = 0; // 逐点跳过后从本段剩余路径中间接续
+            PointSkipPlanner.Plan? resumePlan = null;
             for (var i = 0; i < RetryTimes; i++)
             {
                 try
                 {
                     await ResolveAnomalies(); // 异常场景处理
 
-                    // 如果首个点是非TP点位，强制设置在这个点位附近优先做局部匹配
-                    if (waypoints[0].Type != WaypointType.Teleport.Code)
+                    if (resumePlan is { } skipPlan)
                     {
+                        // 逐点跳过：传送到离下一个未完成战斗点最近的传送点，再从离落点最近的剩余路径点接续
+                        var (landX, landY) = await TeleportNearForPointSkip(waypoints[skipPlan.NextFight]);
+                        startIndex = PointSkipPlanner.JoinIndex(ToPointSkipNodes(waypoints), skipPlan, landX, landY);
+                        Logger.LogWarning("逐点跳过：已传送到下一个战斗点附近，从本段第 {Index} 个路径点继续", startIndex);
+                    }
+                    else if (waypoints[0].Type != WaypointType.Teleport.Code)
+                    {
+                        // 如果首个点是非TP点位，强制设置在这个点位附近优先做局部匹配
                         Navigation.SetPrevPosition((float)waypoints[0].X, (float)waypoints[0].Y);
                     }
 
-                    foreach (var waypoint in waypoints) // 一条路径
+                    for (var k = startIndex; k < waypoints.Count; k++) // 一条路径
                     {
+                        var waypoint = waypoints[k];
                         PointLootSession?.Revoke();
-                        CurWaypoint = (waypoints.FindIndex(wps => wps == waypoint), waypoint);
+                        CurWaypoint = (k, waypoint);
                         TryCloseSkipOtherOperations();
                         await RecoverWhenLowHp(waypoint); // 低血量恢复
 
@@ -251,6 +340,10 @@ public partial class PathExecutor
 
                                 // 执行 action
                                 await AfterMoveToTarget(waypoint);
+                                if (waypoint.Action == ActionEnum.Fight.Code)
+                                {
+                                    _completedFightPoints.Add(waypoint.OriginalPointIndex);
+                                }
                             }
                         }
                     }
@@ -300,8 +393,46 @@ public partial class PathExecutor
                 {
                     StartSkipOtherOperations();
                     Logger.LogWarning(retryException.Message);
+                    // 只有已验证的卡死/复苏重试（PointLootRouteRetryException）在最后一次重试后才可逐点跳过；
+                    // 其他重试（游泳等）保持原有的耗尽即失败契约。
+                    if (i == RetryTimes - 1 && retryException is PointLootRouteRetryException typedRetry)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var skip = TrySkipFailedFightPoint(waypoints, PointLootRouteFailureException.CodeFor(typedRetry.Reason));
+                        if (skip == PointSkipOutcome.FinishSegment)
+                        {
+                            if (waypoints == waypointsList.Last()) SuccessEnd = true;
+                            break;
+                        }
+                        if (skip == PointSkipOutcome.Resume)
+                        {
+                            resumePlan = _pendingResumePlan;
+                            i = -1; // 接续后的剩余路径重新获得完整的重试次数（受每条路线跳过上限约束）
+                            continue;
+                        }
+                    }
                     PointLootRouteRetryException.ThrowIfExhausted(retryException,
                         PointLootSession is not null, i == RetryTimes - 1, ct);
+                }
+                catch (PointLootRouteFailureException positioning) when (PointLootSession is not null && PointSkipEnabled
+                                                                          && positioning.Code is "target-too-far" or "position-unrecognized")
+                {
+                    // 定位失败：只跳过当前战斗点，传送到下一个战斗点附近重新定位
+                    ct.ThrowIfCancellationRequested();
+                    Logger.LogWarning(positioning.Message);
+                    var skip = TrySkipFailedFightPoint(waypoints, positioning.Code);
+                    if (skip == PointSkipOutcome.FinishSegment)
+                    {
+                        if (waypoints == waypointsList.Last()) SuccessEnd = true;
+                        break;
+                    }
+                    if (skip == PointSkipOutcome.Resume)
+                    {
+                        resumePlan = _pendingResumePlan;
+                        i = -1;
+                        continue;
+                    }
+                    throw;
                 }
                 catch (RetryNoCountException retryException)
                 {

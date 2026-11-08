@@ -13,6 +13,8 @@ namespace Microsoft.Extensions.Logging
         public static void LogDebug(this object logger, Exception e, string text) { }
         public static void LogError(this object logger, string text, string message) { }
         public static void LogInformation(this object logger, string text) { }
+        public static readonly List<string> Warnings = new();
+        public static void LogWarning(this object logger, string text, string message) { Warnings.Add(message); }
     }
 }
 namespace BetterGenshinImpact.GameTask.Common
@@ -144,6 +146,11 @@ namespace BetterGenshinImpact.GameTask.AutoPathing
         internal PointLootSession? PointLootSession { get; set; }
         public BetterGenshinImpact.Core.Config.PathingPartyConfig? PartyConfig { get; set; }
         public bool SuccessEnd;
+        internal bool PointSkipEnabled { get; set; }
+        public readonly HashSet<int> Completed = new();
+        public readonly List<(int OriginalIndex, string Code)> Skipped = new();
+        internal IReadOnlyCollection<int> CompletedFightPoints => Completed;
+        internal IReadOnlyList<(int OriginalIndex, string Code)> SkippedFightPoints => Skipped;
         public Task Pathing(PathingTask task) => Execute(this, task, token);
         internal void ClearPointLootRun() { Cleared++; PointLootSession?.Revoke(); }
     }

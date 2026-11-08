@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -93,7 +94,8 @@ public class AutoPathingScript
             var ct = CancellationContext.Instance.Cts.Token;
             using var registration = ct.Register(session.Revoke);
             ct.ThrowIfCancellationRequested();
-            executor = new PathExecutor(ct) { PointLootSession = session };
+            // 逐点跳过只对返回结构化结果的新接口开放；旧接口保持失败即拒绝的契约。
+            executor = new PathExecutor(ct) { PointLootSession = session, PointSkipEnabled = returnLocalFailure };
             if (_config is PathingPartyConfig partyConfig) executor.PartyConfig = partyConfig;
             using var recoveryScope = PointLootRecoveryScope.Enter();
             try
@@ -107,7 +109,21 @@ public class AutoPathingScript
             }
             ct.ThrowIfCancellationRequested();
             if (!executor.SuccessEnd) throw new InvalidOperationException("Point-policy route did not complete.");
-            return RouteResult(routeJson, true, "completed", "完整路线执行结束");
+            var skipped = executor.SkippedFightPoints;
+            if (skipped.Count == 0) return RouteResult(routeJson, true, "completed", "完整路线执行结束");
+            var skippedText = string.Join("、", skipped.Select(s => "#" + s.OriginalIndex + "(" + s.Code + ")"));
+            if (executor.CompletedFightPoints.Count > 0)
+            {
+                // 至少完成一个战斗点：路线按完成处理（写 CD），被跳过的点位当天不再补打。
+                var message = "路线执行结束，逐点跳过 " + skipped.Count + " 个战斗点：" + skippedText;
+                TaskControl.Logger.LogWarning("{Message}", message);
+                return RouteResult(routeJson, true, "completed-with-skips", message);
+            }
+
+            // 一个战斗点都没完成：仍按本地失败返回（不写 CD），失败码取最后一次跳过的原因。
+            var noneMessage = "所有战斗点都被跳过：" + skippedText;
+            TaskControl.Logger.LogWarning("{Message}", noneMessage);
+            return RouteResult(routeJson, false, skipped[^1].Code, noneMessage);
         }
         finally
         {

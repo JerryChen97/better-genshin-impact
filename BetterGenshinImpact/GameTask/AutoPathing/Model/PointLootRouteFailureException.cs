@@ -23,15 +23,17 @@ internal sealed class PointLootRouteFailureException : Exception
 
     internal PointLootRouteFailureException(PointLootRouteFailureReason reason, string message) : base(message)
     {
-        Code = reason switch
-        {
-            PointLootRouteFailureReason.PositionUnrecognized => "position-unrecognized",
-            PointLootRouteFailureReason.TargetTooFar => "target-too-far",
-            PointLootRouteFailureReason.RouteStuck => "route-stuck",
-            PointLootRouteFailureReason.ReviveRetryExhausted => "revive-retry-exhausted",
-            _ => throw new ArgumentOutOfRangeException(nameof(reason))
-        };
+        Code = CodeFor(reason);
     }
+
+    internal static string CodeFor(PointLootRouteFailureReason reason) => reason switch
+    {
+        PointLootRouteFailureReason.PositionUnrecognized => "position-unrecognized",
+        PointLootRouteFailureReason.TargetTooFar => "target-too-far",
+        PointLootRouteFailureReason.RouteStuck => "route-stuck",
+        PointLootRouteFailureReason.ReviveRetryExhausted => "revive-retry-exhausted",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason))
+    };
 }
 
 /// <summary>Retains normal route retries; only the executor may promote the final attempt.</summary>
@@ -45,6 +47,8 @@ internal sealed class PointLootRouteRetryException : RetryException
             throw new ArgumentOutOfRangeException(nameof(reason));
         _reason = reason;
     }
+
+    internal PointLootRouteFailureReason Reason => _reason;
 
     internal PointLootRouteFailureException ToTerminalFailure(CancellationToken ct)
     {

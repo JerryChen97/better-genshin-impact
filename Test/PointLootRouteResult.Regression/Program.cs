@@ -216,4 +216,47 @@ var legacyBridge = Fresh();
 PathExecutor.Execute = (executor, _, _) => { Check(!PointLootRecoveryScope.IsActive, "Legacy Run has no strict recovery scope"); return Task.CompletedTask; };
 await legacyBridge.Run(route);
 
+// Per-point skip result mapping (executor movement stubbed; skip bookkeeping injected).
+{
+    var bridge = Fresh();
+    bool? enabledSeen = null;
+    PathExecutor.Execute = (executor, _, _) => { enabledSeen = executor.PointSkipEnabled; executor.SuccessEnd = true; return Task.CompletedTask; };
+    var plain = JsonDocument.Parse(await bridge.RunWithLootPolicyResult(route, plan)).RootElement;
+    Check(enabledSeen == true, "New result API enables per-point skip");
+    Check(plain.GetProperty("code").GetString() == "completed", "No skip keeps the plain completed code");
+    await bridge.RunWithLootPolicy(route, plan);
+    Check(enabledSeen == false, "Old reject-on-failure API never enables per-point skip");
+
+    var cleared = PathExecutor.Cleared;
+    PathExecutor.Execute = (executor, _, _) => {
+        executor.Completed.Add(0);
+        executor.Skipped.Add((3, "revive-retry-exhausted"));
+        executor.SuccessEnd = true;
+        return Task.CompletedTask;
+    };
+    var partial = JsonDocument.Parse(await bridge.RunWithLootPolicyResult(route, plan)).RootElement;
+    Check(partial.EnumerateObject().Count() == 5, "Skip result keeps the exact five fields");
+    Check(partial.GetProperty("success").GetBoolean() && partial.GetProperty("code").GetString() == "completed-with-skips", "Partial completion is a distinct success code");
+    Check(partial.GetProperty("message").GetString()!.Contains("#3(revive-retry-exhausted)"), "Skip message names the original point and reason");
+    Check(partial.GetProperty("routeSha256").GetString() == routeHash, "Skip result bound to route SHA");
+    Clean(bridge, cleared);
+
+    cleared = PathExecutor.Cleared;
+    PathExecutor.Execute = (executor, _, _) => {
+        executor.Skipped.Add((1, "route-stuck"));
+        executor.Skipped.Add((4, "target-too-far"));
+        executor.SuccessEnd = true;
+        return Task.CompletedTask;
+    };
+    var none = JsonDocument.Parse(await bridge.RunWithLootPolicyResult(route, plan)).RootElement;
+    Check(!none.GetProperty("success").GetBoolean(), "All points skipped is still a local failure (no CD)");
+    Check(none.GetProperty("code").GetString() == "target-too-far", "All-skipped failure uses the last skip reason");
+    Clean(bridge, cleared);
+
+    cleared = PathExecutor.Cleared;
+    PathExecutor.Execute = (executor, _, _) => { executor.Skipped.Add((2, "route-stuck")); return Task.CompletedTask; };
+    await Throws<InvalidOperationException>(() => bridge.RunWithLootPolicyResult(route, plan));
+    Check(bridge.GetPointLootContext() == "null", "Unfinished route with skips is never reported as success");
+}
+
 Console.WriteLine(JsonSerializer.Serialize(new { passed, failed = 0, scope = "Linked production bridge/session/retry classifier/recovery scope; platform and executor movement are stubbed. No game API." }));
