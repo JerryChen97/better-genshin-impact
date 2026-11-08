@@ -3,6 +3,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception;
 using BetterGenshinImpact.GameTask.AutoTrackPath;
+using Microsoft.Extensions.Logging;
+using static BetterGenshinImpact.GameTask.Common.TaskControl;
 
 namespace BetterGenshinImpact.GameTask.AutoPathing.Model;
 
@@ -26,12 +28,12 @@ internal sealed class PointLootRecoveryScope : IDisposable
 
     /// <param name="restoreMainUiAfterTimeout">
     /// Used only when a defeat recovery's statue teleport exceeded its own budget (<see cref="TeleportTimeoutException"/>
-    /// while <paramref name="ct"/> is live). It must leave any open map or panel and return true only after confirming
-    /// the main UI without a revive prompt; the timeout then ends with the verified revive retry. Otherwise the
-    /// timeout propagates unchanged.
+    /// while <paramref name="ct"/> is live) and <see cref="StatueTimeoutGuard"/> allows it. It must leave any open map or
+    /// panel and return true only after confirming the main UI without a revive prompt; the timeout then ends with the
+    /// verified revive retry. Otherwise the timeout propagates unchanged.
     /// </param>
     internal static void RecoverThenRetry(Action recover, Func<bool> isMainUi, CancellationToken ct,
-        bool defeated, RetryException retry, Func<bool>? restoreMainUiAfterTimeout = null)
+        bool defeated, RetryException retry, Func<TeleportTimeoutException, bool>? restoreMainUiAfterTimeout = null)
     {
         ct.ThrowIfCancellationRequested();
         bool mainUi;
@@ -41,10 +43,11 @@ internal sealed class PointLootRecoveryScope : IDisposable
             ct.ThrowIfCancellationRequested();
             mainUi = isMainUi();
         }
-        catch (TeleportTimeoutException) when (defeated && restoreMainUiAfterTimeout is not null &&
-                                               !ct.IsCancellationRequested)
+        catch (TeleportTimeoutException timeout) when (defeated && restoreMainUiAfterTimeout is not null &&
+                                                       !ct.IsCancellationRequested)
         {
-            if (!Checked(restoreMainUiAfterTimeout, ct)) throw;
+            if (!MayConvert(ct) || !Checked(() => restoreMainUiAfterTimeout(timeout), ct)) throw;
+            StatueTimeoutGuard.Converted();
             throw new PointLootRouteRetryException(PointLootRouteFailureReason.ReviveRetryExhausted,
                 retry.Message + StatueTimeoutSuffix);
         }
@@ -62,24 +65,26 @@ internal sealed class PointLootRecoveryScope : IDisposable
 
     /// <summary>
     /// Low-HP or revive-modal statue trip on a policy route; returns the retry to throw. It is the verified retry
-    /// (handled exactly like a verified defeat) after a completed trip with a confirmed main UI, or after a statue
-    /// teleport timeout (<paramref name="ct"/> live) followed by a restored and confirmed main UI. A completed trip
-    /// without a confirmed main UI keeps the plain retry and its original contract. An unrestored timeout and every
-    /// other recovery error propagate unchanged; cancellation always wins.
+    /// (handled exactly like a verified defeat) after a completed trip that <paramref name="confirmRecovered"/> accepts,
+    /// or after a statue teleport timeout (<paramref name="ct"/> live, allowed by <see cref="StatueTimeoutGuard"/>)
+    /// followed by a restored and confirmed main UI. A completed trip that is not confirmed keeps the plain retry and its
+    /// original contract. An unrestored or repeated timeout and every other recovery error propagate unchanged;
+    /// cancellation always wins.
     /// </summary>
-    internal static async Task<RetryException> RecoverAtStatueAsync(Func<Task> recover, Func<Task<bool>> confirmMainUi,
-        Func<Task<bool>> restoreMainUiAfterTimeout, CancellationToken ct, string message)
+    internal static async Task<RetryException> RecoverAtStatueAsync(Func<Task> recover, Func<Task<bool>> confirmRecovered,
+        Func<TeleportTimeoutException, Task<bool>> restoreMainUiAfterTimeout, CancellationToken ct, string message,
+        string timeoutMessage)
     {
         ct.ThrowIfCancellationRequested();
         try
         {
             await recover();
         }
-        catch (TeleportTimeoutException) when (!ct.IsCancellationRequested)
+        catch (TeleportTimeoutException timeout) when (!ct.IsCancellationRequested)
         {
-            if (!await CheckedAsync(restoreMainUiAfterTimeout, ct)) throw;
-            return new PointLootRouteRetryException(PointLootRouteFailureReason.ReviveRetryExhausted,
-                message + StatueTimeoutSuffix);
+            if (!MayConvert(ct) || !await CheckedAsync(() => restoreMainUiAfterTimeout(timeout), ct)) throw;
+            StatueTimeoutGuard.Converted();
+            return new PointLootRouteRetryException(PointLootRouteFailureReason.ReviveRetryExhausted, timeoutMessage);
         }
         catch
         {
@@ -87,9 +92,17 @@ internal sealed class PointLootRecoveryScope : IDisposable
             throw;
         }
         ct.ThrowIfCancellationRequested();
-        return await CheckedAsync(confirmMainUi, ct)
+        return await CheckedAsync(confirmRecovered, ct)
             ? new PointLootRouteRetryException(PointLootRouteFailureReason.ReviveRetryExhausted, message)
             : new RetryException(message);
+    }
+
+    private static bool MayConvert(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (StatueTimeoutGuard.MayConvert) return true;
+        Logger.LogWarning("七天神像传送再次超时（上次超时后还没有完成过神像传送），视为持续故障，按原规则停止");
+        return false;
     }
 
     /// <summary>Runs a UI check; cancellation (before, during or right after it) takes priority over its result.</summary>

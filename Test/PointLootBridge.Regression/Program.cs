@@ -400,8 +400,70 @@ using (var routeCts = new CancellationTokenSource())
     await Throws<BetterGenshinImpact.GameTask.AutoTrackPath.TeleportTimeoutException>(() =>
         session.RunFightAsync(1, routeCts.Token, () => Task.CompletedTask,
             attempt => PointLootGatherTask.RunAsync(session, attempt, routeCts.Token)));
-    Check(session.GetContextJson() == "null", "Timed-out recovery cannot publish a stale window");
+    Check(RunnerContext.Instance.Scenes.Token == routeCts.Token, "A propagating recovery timeout still restores the route token");
     RunnerContext.Instance.Scenes.Avatar.RecoverSwitch = null;
+}
+
+// PointLootMainUi: the multi-frame main-UI gate behind statue recovery. It never sends game input while confirming.
+{
+    var timeout = new BetterGenshinImpact.GameTask.AutoTrackPath.TeleportTimeoutException("单次传送超过 120 秒",
+        new BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception.NormalEndException("取消自动任务"));
+    void Frames(params bool[] frames) { Bv.MainUiFrames.Clear(); foreach (var f in frames) Bv.MainUiFrames.Enqueue(f); }
+    var holdBefore = TaskControl.HoldCalls;
+    var plungeBefore = TaskControl.PlungeCalls;
+
+    Frames(true, true, false, true, true, true);
+    Bv.MainUiReads = 0;
+    Check(await PointLootMainUi.ConfirmAsync(default) && Bv.MainUiReads == 6, "A broken run restarts the 3-frame count");
+    Frames();
+    Bv.MainUi = false;
+    Bv.MainUiReads = 0;
+    Check(!await PointLootMainUi.ConfirmAsync(default) && Bv.MainUiReads == PointLootMainUi.MaxObservations,
+        "No main UI within the observation budget is not confirmed");
+    Bv.MainUi = true;
+    Bv.RevivePrompt = true;
+    Check(!await PointLootMainUi.ConfirmAsync(default), "A revive prompt is never a confirmed main UI");
+    Bv.RevivePrompt = false;
+    Bv.LowHp = true;
+    Check(await PointLootMainUi.ConfirmAsync(default) && !await PointLootMainUi.ConfirmHealedAsync(default)
+          && warnings.Contains("回七天神像后未能确认主界面稳定且血量正常，按普通重试处理"), "Healed confirmation also requires normal HP");
+    Bv.LowHp = false;
+    Check(await PointLootMainUi.ConfirmHealedAsync(default), "Stable main UI with normal HP is a healed confirmation");
+    Check(TaskControl.HoldCalls == holdBefore && TaskControl.PlungeCalls == plungeBefore, "Confirmation sends no game input");
+
+    var releasesBefore = BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls;
+    BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts = 0;
+    Frames(Enumerable.Repeat(false, PointLootMainUi.MaxObservations).Concat(new[] { true, true, true }).ToArray());
+    Check(await PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, default)
+          && BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts == 2
+          && BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls == releasesBefore + 1,
+        "Restore releases inputs first and confirms in a second round");
+    Frames();
+    Bv.MainUi = false;
+    BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts = 0;
+    Check(!await PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, default)
+          && BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts == 2
+          && warnings[^1] == "七天神像传送超时后未能确认回到主界面，按原规则停止", "An unconfirmed restore gives up after two rounds");
+    Bv.MainUi = true;
+
+    using (var cancelled = new CancellationTokenSource())
+    {
+        cancelled.Cancel();
+        Bv.MainUiReads = 0;
+        BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts = 0;
+        await Throws<OperationCanceledException>(() => PointLootMainUi.ConfirmAsync(cancelled.Token));
+        await Throws<OperationCanceledException>(() => PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, cancelled.Token));
+        Check(Bv.MainUiReads == 0 && BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts == 0,
+            "A stopped run neither captures nor presses ESC");
+    }
+    using (var cancelled = new CancellationTokenSource())
+    {
+        Frames(false, false);
+        TaskControl.BeforeDelay = () => cancelled.Cancel();
+        await Throws<BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception.NormalEndException>(() => PointLootMainUi.ConfirmAsync(cancelled.Token));
+        TaskControl.BeforeDelay = null;
+        Frames();
+    }
 }
 
 // Real combat CheckFightFinish cancels the party-setup animation and returns immediately.

@@ -11,6 +11,22 @@ namespace BetterGenshinImpact.GameTask.AutoTrackPath;
 public sealed class TeleportTimeoutException(string message, Exception innerException)
     : TimeoutException(message, innerException);
 
+/// <summary>
+/// 进程内的连续神像超时保险。逐点策略的恢复把一次七天神像传送超时转成重试后，直到下一次七天神像传送完成之前，
+/// 再次超时就视为持续故障：不再转换，原样传播（与修复前一样尽早停止），避免每条后续路线都反复回神像。
+/// </summary>
+internal static class StatueTimeoutGuard
+{
+    private static int s_convertedSinceCompleted;
+
+    internal static bool MayConvert => Volatile.Read(ref s_convertedSinceCompleted) == 0;
+
+    internal static void Converted() => Interlocked.Increment(ref s_convertedSinceCompleted);
+
+    /// <summary>任何一次七天神像传送正常完成（TpToStatueOfTheSeven）都说明神像传送恢复正常。</summary>
+    internal static void TeleportCompleted() => Volatile.Write(ref s_convertedSinceCompleted, 0);
+}
+
 internal static class TeleportBudget
 {
     /// <summary>

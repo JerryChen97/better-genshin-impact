@@ -208,7 +208,7 @@ public partial class PathExecutor
     }
 
     /// <summary>
-    /// 逐点跳过的重放会经过仍存活的被跳过遭遇。重放过的段里普通重试（如游泳回七天神像、未确认主界面的低血量回血）在最后一次尝试耗尽时，
+    /// 逐点跳过的重放会经过仍存活的被跳过遭遇。重放过的段里普通重试（如游泳回七天神像、回神像后未确认主界面稳定且血量正常的低血量回血）在最后一次尝试耗尽时，
     /// 确认已回到主界面后，以触发本次重放的跳过原因作为本地失败结束本路线：这正是不做逐点跳过时本路线本来的结果
     /// （不写 CD），而不是升级为整组中止。本段没有重放过，或未能回到主界面时不处理，仍按原契约。
     /// </summary>
@@ -821,9 +821,9 @@ public partial class PathExecutor
     }
 
     /// <summary>
-    /// 去七天神像回血，返回随后要抛出的重试。逐点策略路线中，确认回到主界面后为已验证的重试，与战斗中被击败相同：
-    /// 最后一次尝试时逐点跳过或本地失败，不再整组中止；神像传送超过自身预算（不是取消）时先返回并确认主界面，
-    /// 同样为已验证的重试，确认不了则原样抛出超时。其他路线保持原有行为。
+    /// 去七天神像回血，返回随后要抛出的重试。逐点策略路线中，确认主界面稳定且血量正常后为已验证的重试，与战斗中被击败相同：
+    /// 最后一次尝试时逐点跳过或本地失败，不再整组中止；确认不了时为普通重试（原契约）。神像传送超过自身预算（不是取消）时
+    /// 先返回并确认主界面，同样为已验证的重试；确认不了或连续超时则原样抛出超时。其他路线保持原有行为。
     /// </summary>
     private async Task<RetryException> RecoverAtStatueThenRetry()
     {
@@ -835,8 +835,9 @@ public partial class PathExecutor
         }
 
         return await PointLootRecoveryScope.RecoverAtStatueAsync(TpStatueOfTheSeven,
-            () => PointLootMainUi.ConfirmAsync(ct), () => PointLootMainUi.RestoreAfterTeleportTimeoutAsync(ct), ct,
-            message);
+            () => PointLootMainUi.ConfirmHealedAsync(ct),
+            timeout => PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, ct), ct,
+            message, "去七天神像回血时传送超时，已返回主界面，重试路线");
     }
 
     private async Task TpStatueOfTheSeven()

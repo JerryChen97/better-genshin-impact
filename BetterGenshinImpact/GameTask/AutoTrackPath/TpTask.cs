@@ -85,8 +85,12 @@ public class TpTask
     private const int TeleportClickableAreaRetryDelayMs = 80;
     private const int BigMapRectRetryIntervalMs = 150;
     private const int TeleportTimeoutMs = 60_000;
-    // 七天神像恢复传送（战斗中被击败、低血量回血等）通常约 7 秒；偶发的整体变慢不应在 60 秒时就被当作失败。
+    // 所有经 TpToStatueOfTheSeven 的七天神像传送（被击败复活、低血量回血、换队等）通常约 7 秒；
+    // 偶发的整体变慢不应在 60 秒时就被当作失败。路线传送仍为 TeleportTimeoutMs。
     private const int StatueTeleportTimeoutMs = 120_000;
+    // 等待传送完成由所在 TeleportBudget 的预算限定。次数上限只作保险（每次至少间隔 100 ms，即不少于最长预算的两倍），
+    // 避免在预算到点前静默按成功返回：120 秒预算下原来的 600 次（约 60 秒）会先到。
+    private const int TeleportCompletionMaxChecks = StatueTeleportTimeoutMs / 50;
     private const double MapPositionRecognitionRecoveryZoomStep = 1.0;
     private static string? s_lastSuccessfulTeleportMapName;
     private double _mapZoomLevelPerWheelNotch = DefaultMapZoomLevelPerWheelNotch;
@@ -274,6 +278,7 @@ public class TpTask
 
         Logger.LogInformation("将传送至 {country} {area} 七天神像", country, area);
         await TpWithTimeout(x, y, MapTypes.Teyvat.ToString(), false, StatueTeleportTimeoutMs);
+        StatueTimeoutGuard.TeleportCompleted();
         if (_tpConfig.ShouldMove || _tpConfig.IsReviveInNearestStatueOfTheSeven)
         {
             (x, y) = GetClosestPoint(revivePoint.TranX, revivePoint.TranY, x, y, 5);
@@ -1007,7 +1012,7 @@ public class TpTask
         var consecutiveNonUiChecks = 0;
         var consecutiveMainUiChecks = 0;
         var blessingCheckCountdown = 10;
-        for (var attempt = 0; attempt < 600; attempt++)
+        for (var attempt = 0; attempt < TeleportCompletionMaxChecks; attempt++)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -1040,7 +1045,7 @@ public class TpTask
                 }
             }
 
-            if (attempt + 1 >= 600)
+            if (attempt + 1 >= TeleportCompletionMaxChecks)
             {
                 break;
             }

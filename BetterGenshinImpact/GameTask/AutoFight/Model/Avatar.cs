@@ -245,7 +245,8 @@ public class Avatar
     /// <summary>
     /// 已识别到复苏界面：关闭复苏界面并前往七天神像复活，总是抛出（与战斗中被击败相同）。
     /// 逐点策略路线：恢复完成且确认回到主界面，或神像传送超过自身预算（不是取消）后返回并确认主界面时，
-    /// 为已验证的 PointLootRouteRetryException；其他恢复失败和取消原样传播。
+    /// 为已验证的 PointLootRouteRetryException；恢复完成但未确认主界面时为 InvalidOperationException；
+    /// 未能恢复或连续的神像传送超时、其他恢复失败原样传播；取消以 OperationCanceledException 结束。
     /// 其他路线：恢复完成或恢复中出现一般异常时为 RetryException；停止和取消原样传播。
     /// </summary>
     internal static void RecoverFromRevivePrompt(CancellationToken ct)
@@ -274,7 +275,7 @@ public class Avatar
                     using var region = CaptureToRectArea();
                     return Bv.IsInMainUi(region) && !Bv.IsInRevivePrompt(region);
                 }, ct, defeated, retryException,
-                () => PointLootMainUi.RestoreAfterTeleportTimeoutAsync(ct).WaitAsync(ct).GetAwaiter().GetResult());
+                timeout => PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, ct).WaitAsync(ct).GetAwaiter().GetResult());
         }
         try
         {

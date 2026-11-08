@@ -117,8 +117,9 @@ namespace BetterGenshinImpact.GameTask.AutoFight.Model
         public void AfterUseSkill() { }
     }
     // Production Avatar.RecoverFromRevivePrompt closes the prompt, recovers at the statue and always throws. Inside a
-    // point-policy scope: the verified revive retry after a completed recovery or a restored statue-teleport timeout;
-    // other recovery failures and cancellation propagate unchanged. The stub models the completed recovery.
+    // point-policy scope: the verified revive retry after a completed recovery with a confirmed main UI, or after a
+    // restored statue-teleport timeout; InvalidOperationException for an unconfirmed main UI; cancellation surfaces as
+    // OperationCanceledException; other recovery failures propagate unchanged. The stub models the completed recovery.
     public static class Avatar
     {
         public static int RecoverCalls;
@@ -152,6 +153,18 @@ namespace BetterGenshinImpact.GameTask.Common.BgiVision
             return MainUiFrames.Count > 0 ? MainUiFrames.Dequeue() : MainUi;
         }
         public static bool IsInRevivePrompt(object capture) => RevivePrompt;
+        public static bool LowHp;
+        public static bool CurrentAvatarIsLowHp(object capture) => LowHp;
+    }
+}
+namespace BetterGenshinImpact.GameTask.Common.Job
+{
+    // Production ReturnMainUiTask presses ESC until the main UI shows; the stub only counts rounds.
+    public sealed class ReturnMainUiTask
+    {
+        public static int Starts;
+        public static Action<CancellationToken>? OnStart;
+        public Task Start(CancellationToken ct) { Starts++; OnStart?.Invoke(ct); return Task.CompletedTask; }
     }
 }
 namespace BetterGenshinImpact.GameTask.AutoPathing
