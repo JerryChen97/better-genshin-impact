@@ -386,6 +386,23 @@ using (var routeCts = new CancellationTokenSource())
     Check(session.GetContextJson() == "null", "Cancelled recovery cannot publish a stale window");
     RunnerContext.Instance.Scenes.Avatar.RecoverSwitch = null;
 }
+using (var session = Session())
+using (var routeCts = new CancellationTokenSource())
+{
+    // A statue teleport that exceeded its budget is typed (before 11/08 it surfaced as NormalEndException). The
+    // gather filters must not swallow it as an optional stop, even when the attempt was revoked meanwhile.
+    RunnerContext.Instance.Scenes.Avatar.RecoverSwitch = _ =>
+    {
+        session.SetEnabled(false);
+        throw new BetterGenshinImpact.GameTask.AutoTrackPath.TeleportTimeoutException("单次传送超过 120 秒",
+            new BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception.NormalEndException("取消自动任务"));
+    };
+    await Throws<BetterGenshinImpact.GameTask.AutoTrackPath.TeleportTimeoutException>(() =>
+        session.RunFightAsync(1, routeCts.Token, () => Task.CompletedTask,
+            attempt => PointLootGatherTask.RunAsync(session, attempt, routeCts.Token)));
+    Check(session.GetContextJson() == "null", "Timed-out recovery cannot publish a stale window");
+    RunnerContext.Instance.Scenes.Avatar.RecoverSwitch = null;
+}
 
 // Real combat CheckFightFinish cancels the party-setup animation and returns immediately.
 // Its first capture may legitimately lack Paimon; two consecutive fresh main-UI captures

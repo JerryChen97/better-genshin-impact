@@ -5,6 +5,7 @@ using BetterGenshinImpact.Core.Script.Dependence;
 using BetterGenshinImpact.GameTask;
 using BetterGenshinImpact.GameTask.AutoPathing;
 using BetterGenshinImpact.GameTask.AutoPathing.Model;
+using BetterGenshinImpact.GameTask.AutoTrackPath;
 using BetterGenshinImpact.GameTask.Common;
 using BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception;
 
@@ -18,6 +19,14 @@ async Task Throws<T>(Func<Task> run) where T : Exception
 {
     try { await run(); } catch (T) { passed++; return; }
     throw new Exception("Expected " + typeof(T).Name);
+}
+async Task<Exception?> CatchAsync(Func<Task> run)
+{
+    try { await run(); return null; } catch (Exception e) { return e; }
+}
+Exception? CatchSync(Action run)
+{
+    try { run(); return null; } catch (Exception e) { return e; }
 }
 AutoPathingScript Fresh()
 {
@@ -206,6 +215,122 @@ foreach (var cancellationStage in new[] { "recovery-throw", "ui-false", "ui-thro
         () => { if (cancellationStage == "recovery-throw") { cancelled.Cancel(); throw new InvalidOperationException("recovery failed while stopping"); } },
         () => { cancelled.Cancel(); if (cancellationStage == "ui-throw") throw new InvalidOperationException("capture stopped"); return false; },
         cancelled.Token, true, request)));
+}
+
+// TpTask.Tp / TpToStatueOfTheSeven run every teleport through the production TeleportBudget helper.
+Check(await TeleportBudget.RunAsync(_ => Task.FromResult(7), 1000, default) == 7, "Teleport within its budget returns its result");
+{
+    var expired = await CatchAsync(() => TeleportBudget.RunAsync<int>(async t => { await Task.Delay(Timeout.Infinite, t); return 0; }, 1000, default));
+    Check(expired is TeleportTimeoutException { InnerException: OperationCanceledException } && expired is TimeoutException
+          && expired.Message == "单次传送超过 1 秒", "Own budget expiry inside an await is a typed teleport timeout");
+    // 11/08 C055 shape: the timer fires during synchronous work and the next check is TaskControl.Delay's entry.
+    expired = await CatchAsync(() => TeleportBudget.RunAsync<int>(async t => { await Task.Delay(300); await TaskControl.Delay(10, t); return 0; }, 30, default));
+    Check(expired is TeleportTimeoutException { InnerException: NormalEndException }, "Own budget expiry seen as NormalEnd at a Delay entry is a typed teleport timeout");
+}
+foreach (var stopKind in new[] { "oce", "normal-end" })
+{
+    using var outer = new CancellationTokenSource();
+    var stopped = await CatchAsync(() => TeleportBudget.RunAsync<int>(async t =>
+    {
+        outer.Cancel();
+        if (stopKind == "oce") await Task.Delay(Timeout.Infinite, t);
+        else await TaskControl.Delay(10, t);
+        return 0;
+    }, 60_000, outer.Token));
+    Check(stopped is not TimeoutException && (stopKind == "oce" ? stopped is OperationCanceledException : stopped is NormalEndException),
+        "A real stop keeps its own exception: " + stopKind);
+}
+{
+    using var outer = new CancellationTokenSource();
+    var stopped = await CatchAsync(() => TeleportBudget.RunAsync<int>(async t =>
+    {
+        await Task.Delay(200);
+        outer.Cancel(); // budget already expired, then a real stop arrives before classification
+        await TaskControl.Delay(10, t);
+        return 0;
+    }, 20, outer.Token));
+    Check(stopped is NormalEndException, "A stop after budget expiry stays a stop");
+    var failure = new InvalidOperationException("传送失败");
+    Check(ReferenceEquals(await CatchAsync(() => TeleportBudget.RunAsync<int>(async _ => { await Task.Delay(200); throw failure; }, 20, default)), failure),
+        "A non-stop teleport failure after expiry is not relabelled");
+    var early = new NormalEndException("other stop");
+    Check(ReferenceEquals(await CatchAsync(() => TeleportBudget.RunAsync<int>(_ => throw early, 60_000, default)), early),
+        "A NormalEnd before budget expiry is not relabelled");
+}
+
+// Defeat recovery whose statue teleport exceeded its budget (11/08 C055).
+var statueTimeout = new TeleportTimeoutException("单次传送超过 120 秒", new NormalEndException("取消自动任务"));
+{
+    var restores = 0;
+    checkedUi = 0;
+    var caught = CatchSync(() => PointLootRecoveryScope.RecoverThenRetry(() => throw statueTimeout,
+        () => { checkedUi++; return true; }, default, true, request, () => { restores++; return true; }));
+    Check(caught is PointLootRouteRetryException typed && typed.ToTerminalFailure(default).Code == "revive-retry-exhausted"
+          && typed.Message == request.Message + PointLootRecoveryScope.StatueTimeoutSuffix, "Restored statue timeout is the verified revive retry");
+    Check(restores == 1 && checkedUi == 0, "A statue timeout is converted only through the restore check");
+}
+foreach (var (label, restore, defeatedCase) in new (string, Func<bool>?, bool)[]
+             { ("restore false", () => false, true), ("no restore", null, true), ("not defeated", () => true, false) })
+{
+    Check(ReferenceEquals(CatchSync(() => PointLootRecoveryScope.RecoverThenRetry(() => throw statueTimeout, () => true,
+        default, defeatedCase, request, restore)), statueTimeout), "Statue timeout propagates unchanged: " + label);
+}
+{
+    var restoreFailure = new InvalidOperationException("capture failed during restore");
+    Check(ReferenceEquals(CatchSync(() => PointLootRecoveryScope.RecoverThenRetry(() => throw statueTimeout, () => true,
+        default, true, request, () => throw restoreFailure)), restoreFailure), "A failing restore propagates its own error");
+    foreach (var other in new Exception[] { new NormalEndException("F11 stop"), new TimeoutException("other timeout"), new OperationCanceledException("stop") })
+    {
+        var restores = 0;
+        Check(ReferenceEquals(CatchSync(() => PointLootRecoveryScope.RecoverThenRetry(() => throw other, () => true,
+            default, true, request, () => { restores++; return true; })), other) && restores == 0,
+            "Only a teleport timeout may be restored: " + other.GetType().Name);
+    }
+}
+foreach (var stage in new[] { "before-classification", "restore-true", "restore-throws" })
+{
+    using var cancelled = new CancellationTokenSource();
+    var restores = 0;
+    await Throws<OperationCanceledException>(() => Task.Run(() => PointLootRecoveryScope.RecoverThenRetry(
+        () => { if (stage == "before-classification") cancelled.Cancel(); throw statueTimeout; }, () => true, cancelled.Token, true, request,
+        () => { restores++; cancelled.Cancel(); if (stage == "restore-throws") throw new NormalEndException("stop during restore"); return true; })));
+    Check(stage != "before-classification" || restores == 0, "A stop before classification never restores");
+}
+
+// Low-HP / revive-modal statue trip on a policy route (PathExecutor.RecoverAtStatueThenRetry).
+const string lowHp = "回血完成后重试路线";
+Func<Task> completedTrip = () => Task.CompletedTask;
+Func<Task> timedOutTrip = () => Task.FromException(statueTimeout);
+Func<Task<bool>> yes = () => Task.FromResult(true), no = () => Task.FromResult(false);
+{
+    var retry = await PointLootRecoveryScope.RecoverAtStatueAsync(completedTrip, yes, () => throw new Exception("restore must not run"), default, lowHp);
+    Check(retry is PointLootRouteRetryException typed && typed.ToTerminalFailure(default).Code == "revive-retry-exhausted" && retry.Message == lowHp,
+        "Confirmed low-HP trip is the verified retry");
+    retry = await PointLootRecoveryScope.RecoverAtStatueAsync(completedTrip, no, yes, default, lowHp);
+    Check(retry.GetType() == typeof(RetryException) && retry.Message == lowHp, "Unconfirmed low-HP trip keeps the plain retry");
+    retry = await PointLootRecoveryScope.RecoverAtStatueAsync(timedOutTrip, () => throw new Exception("confirm must not run"), yes, default, lowHp);
+    Check(retry is PointLootRouteRetryException && retry.Message == lowHp + PointLootRecoveryScope.StatueTimeoutSuffix,
+        "Restored low-HP statue timeout is the verified retry");
+    Check(ReferenceEquals(await CatchAsync(() => PointLootRecoveryScope.RecoverAtStatueAsync(timedOutTrip, yes, no, default, lowHp)), statueTimeout),
+        "Unrestored low-HP statue timeout propagates unchanged");
+    foreach (var other in new Exception[] { new NormalEndException("F11"), new TimeoutException("other"), new InvalidOperationException("传送失败"), new RetryException("movement retry") })
+        Check(ReferenceEquals(await CatchAsync(() => PointLootRecoveryScope.RecoverAtStatueAsync(() => Task.FromException(other), yes, yes, default, lowHp)), other),
+            "Low-HP recovery failure propagates unchanged: " + other.GetType().Name);
+}
+foreach (var stage in new[] { "entry", "recovery", "timeout", "restore", "confirm" })
+{
+    using var cancelled = new CancellationTokenSource();
+    if (stage == "entry") cancelled.Cancel();
+    Func<Task> recover = stage switch
+    {
+        "recovery" => () => { cancelled.Cancel(); return Task.CompletedTask; },
+        "timeout" => () => { cancelled.Cancel(); return Task.FromException(statueTimeout); },
+        "restore" => timedOutTrip,
+        _ => completedTrip
+    };
+    await Throws<OperationCanceledException>(() => PointLootRecoveryScope.RecoverAtStatueAsync(recover,
+        () => { cancelled.Cancel(); return Task.FromResult(true); },
+        () => { cancelled.Cancel(); return Task.FromResult(true); }, cancelled.Token, lowHp));
 }
 
 // Real async-local lifetime: nested and concurrent calls cannot leak strict recovery into legacy runs.

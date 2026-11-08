@@ -116,9 +116,9 @@ namespace BetterGenshinImpact.GameTask.AutoFight.Model
         public Task WaitSkillCd(CancellationToken token) => Wait(token);
         public void AfterUseSkill() { }
     }
-    // Production Avatar.RecoverFromRevivePrompt closes the prompt, recovers at the statue and always throws: after a
-    // completed recovery the verified revive retry inside a point-policy scope (else the plain RetryException);
-    // recovery failures and cancellation propagate unchanged. The stub models the completed recovery.
+    // Production Avatar.RecoverFromRevivePrompt closes the prompt, recovers at the statue and always throws. Inside a
+    // point-policy scope: the verified revive retry after a completed recovery or a restored statue-teleport timeout;
+    // other recovery failures and cancellation propagate unchanged. The stub models the completed recovery.
     public static class Avatar
     {
         public static int RecoverCalls;

@@ -85,6 +85,8 @@ public class TpTask
     private const int TeleportClickableAreaRetryDelayMs = 80;
     private const int BigMapRectRetryIntervalMs = 150;
     private const int TeleportTimeoutMs = 60_000;
+    // 七天神像恢复传送（战斗中被击败、低血量回血等）通常约 7 秒；偶发的整体变慢不应在 60 秒时就被当作失败。
+    private const int StatueTeleportTimeoutMs = 120_000;
     private const double MapPositionRecognitionRecoveryZoomStep = 1.0;
     private static string? s_lastSuccessfulTeleportMapName;
     private double _mapZoomLevelPerWheelNotch = DefaultMapZoomLevelPerWheelNotch;
@@ -271,7 +273,7 @@ public class TpTask
         }
 
         Logger.LogInformation("将传送至 {country} {area} 七天神像", country, area);
-        await Tp(x, y, MapTypes.Teyvat.ToString(), false);
+        await TpWithTimeout(x, y, MapTypes.Teyvat.ToString(), false, StatueTeleportTimeoutMs);
         if (_tpConfig.ShouldMove || _tpConfig.IsReviveInNearestStatueOfTheSeven)
         {
             (x, y) = GetClosestPoint(revivePoint.TranX, revivePoint.TranY, x, y, 5);
@@ -1204,19 +1206,15 @@ public class TpTask
     }
 
 
-    public async Task<(double, double)> Tp(double tpX, double tpY, string mapName = "Teyvat", bool force = false)
-    {
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TeleportTimeoutMs);
-        try
-        {
-            return await new TpTask(timeoutCts.Token).TpWithRetries(tpX, tpY, mapName, force);
-        }
-        catch (OperationCanceledException e) when (!ct.IsCancellationRequested && timeoutCts.IsCancellationRequested)
-        {
-            throw new TimeoutException($"单次传送超过 {TeleportTimeoutMs / 1000} 秒", e);
-        }
-    }
+    public Task<(double, double)> Tp(double tpX, double tpY, string mapName = "Teyvat", bool force = false) =>
+        TpWithTimeout(tpX, tpY, mapName, force, TeleportTimeoutMs);
+
+    /// <summary>
+    /// 自身预算到点（调用方令牌未取消）时统一抛出 <see cref="TeleportTimeoutException"/>，
+    /// 无论内部表现为 OperationCanceledException 还是 TaskControl.Delay 的 NormalEndException。
+    /// </summary>
+    private Task<(double, double)> TpWithTimeout(double tpX, double tpY, string mapName, bool force, int timeoutMs) =>
+        TeleportBudget.RunAsync(token => new TpTask(token).TpWithRetries(tpX, tpY, mapName, force), timeoutMs, ct);
 
     private async Task<(double, double)> TpWithRetries(double tpX, double tpY, string mapName, bool force)
     {
