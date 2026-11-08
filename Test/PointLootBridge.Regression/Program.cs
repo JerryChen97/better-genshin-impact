@@ -475,6 +475,8 @@ using (PointLootRecoveryScope.Enter())
     Check(retry.Reason == PointLootRouteFailureReason.ReviveRetryExhausted &&
           PointLootRouteFailureException.CodeFor(retry.Reason) == "revive-retry-exhausted",
         "A defeat seen after gathering is the typed revive retry");
+    Check(BetterGenshinImpact.GameTask.AutoFight.Model.Avatar.RecoverToken == routeCts.Token,
+        "Post-gather recovery uses the route token, never the optional gather budget");
     Check(TaskControl.HoldCalls == holdBefore + 1 && session.GetContextJson() == "null",
         "Post-gather revive prompt opens no pickup window");
     TaskControl.BeforeDelay = null;

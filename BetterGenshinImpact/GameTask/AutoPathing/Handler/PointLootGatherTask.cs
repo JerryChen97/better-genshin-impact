@@ -93,8 +93,9 @@ internal static class PointLootGatherTask
                 revivePrompt = Bv.IsInRevivePrompt(capture);
                 consecutiveMainUi = !revivePrompt && Bv.IsInMainUi(capture) ? consecutiveMainUi + 1 : 0;
             }
-            // Same as a defeat during combat: close the prompt, recover at the statue with the route token
-            // (never the optional gather budget), and end with the verified revive retry. Always throws.
+            // Same as a defeat during combat: close the prompt and recover at the statue with the route token
+            // (never the optional gather budget). Always throws: the verified revive retry after a confirmed
+            // recovery, otherwise the recovery failure or cancellation, exactly as for an in-fight defeat.
             if (revivePrompt) Avatar.RecoverFromRevivePrompt(ct);
             if (consecutiveMainUi >= 2) return true;
             if (observation < 19) await Delay(100, ct);

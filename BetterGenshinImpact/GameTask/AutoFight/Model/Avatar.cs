@@ -242,8 +242,8 @@ public class Avatar
     }
 
     /// <summary>
-    /// 已识别到复苏界面：关闭复苏界面并前往七天神像复活。总是以 RetryException 结束
-    /// （逐点策略路线中为已验证的 PointLootRouteRetryException）。
+    /// 已识别到复苏界面：关闭复苏界面并前往七天神像复活。总是抛出（与战斗中被击败相同）：恢复完成时为 RetryException
+    /// （逐点策略路线中还要确认回到主界面，为已验证的 PointLootRouteRetryException）；否则传播恢复失败或取消异常。
     /// </summary>
     internal static void RecoverFromRevivePrompt(CancellationToken ct)
     {

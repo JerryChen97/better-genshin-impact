@@ -221,6 +221,8 @@ public partial class PathExecutor
         }
 
         ct.ThrowIfCancellationRequested();
+        // finally 要等本方法结束才松键；MoveTo 超时等重试抛出时可能仍按着 W，等待主界面前先松开。
+        ReleaseRouteInputs();
         if (!await Bv.WaitForMainUi(ct, 5))
         {
             return;
@@ -229,6 +231,14 @@ public partial class PathExecutor
         Logger.LogWarning("逐点跳过：重放未能完成（{Message}），按跳过前的失败（{Code}）结束本路线", retryException.Message, code);
         throw new PointLootRouteFailureException(PointLootRouteFailureException.ReasonFor(code),
             "逐点跳过后的重放未能完成：" + retryException.Message);
+    }
+
+    /// <summary>松开路线执行中可能按住的按键（重复调用无害）。</summary>
+    private static void ReleaseRouteInputs()
+    {
+        InputHub.Foreground.Keyboard.KeyUp(User32.VK.VK_W);
+        InputHub.Foreground.Mouse.RightButtonUp();
+        InputHub.Foreground.SimulateAction(GIActions.NormalAttack, KeyType.KeyUp);
     }
 
     public async Task Pathing(PathingTask task)
@@ -450,9 +460,7 @@ public partial class PathExecutor
                 {
                     PointLootSession?.Revoke();
                     // 不管咋样，松开所有按键
-                    InputHub.Foreground.Keyboard.KeyUp(User32.VK.VK_W);
-                    InputHub.Foreground.Mouse.RightButtonUp();
-                    InputHub.Foreground.SimulateAction(GIActions.NormalAttack, KeyType.KeyUp);
+                    ReleaseRouteInputs();
                 }
             }
 

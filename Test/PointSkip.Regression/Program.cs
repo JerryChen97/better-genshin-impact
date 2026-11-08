@@ -99,11 +99,13 @@ var route = new List<Pt> { TP(0, 0, 0), PP(1, 10, 0), PP(2, 20, 0), FP(3, 30, 0)
     var before = t.Apply(0, route, 2, "route-stuck");
     Check(before.Outcome == Outcome.NotAllowed && before.Reason == "replay-before-floor", "A failure on the replay approach never skips a new, untried fight");
     Check(t.Skipped.Count == 1 && t.SkipEvents == 1, "Replay-before-floor records nothing");
+    Check(t.ReplayFailureCode(0) == "revive-retry-exhausted", "A refused replay-before-floor keeps the replay code");
     t.MarkCompleted(3);
     Check(!t.Completed.Contains(3), "A skipped fight is never resurrected as completed");
     var b = t.Apply(0, route, 6, "route-stuck");
     Check(b.Outcome == Outcome.Resume && b.ResumeIndex == 7 && t.SkipEvents == 2, "Second skip after the floor");
-    Check(t.Apply(0, route, 8, "route-stuck").Outcome == Outcome.NotAllowed, "Third encounter hits the per-route limit");
+    Check(t.Apply(0, route, 8, "target-too-far").Outcome == Outcome.NotAllowed, "Third encounter hits the per-route limit");
+    Check(t.ReplayFailureCode(0) == "route-stuck", "A refused skip at the limit keeps the latest replay code");
     Check(t.Skipped.Select(s => s.OriginalIndex).SequenceEqual(new[] { 3, 6 }) && t.Completed.Count == 0, "Bookkeeping after the limit");
 }
 {
