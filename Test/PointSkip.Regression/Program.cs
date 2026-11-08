@@ -1,8 +1,9 @@
-// Linked production PointSkipPlanner (pure logic). No game, executor or file access.
+// Linked production PointSkipPlanner + PointSkipTracker (pure logic). No game, executor or file access.
 using System.Text.Json;
 using BetterGenshinImpact.GameTask.AutoPathing.Model;
 using Node = BetterGenshinImpact.GameTask.AutoPathing.Model.PointSkipPlanner.Node;
 using Outcome = BetterGenshinImpact.GameTask.AutoPathing.Model.PointSkipPlanner.Outcome;
+using Pt = BetterGenshinImpact.GameTask.AutoPathing.Model.PointSkipTracker.Point;
 
 var passed = 0;
 void Check(bool value, string description) { if (!value) throw new Exception("FAILED: " + description); passed++; }
@@ -11,68 +12,58 @@ void Throws<T>(Action run, string description) where T : Exception
     try { run(); } catch (T) { passed++; return; }
     throw new Exception("Expected " + typeof(T).Name + ": " + description);
 }
-Node T(double x, double y) => new(false, false, true, x, y);                          // teleport
-Node P(double x, double y) => new(false, false, false, x, y);                         // path / orientation, no fight
-Node F(double x, double y, bool finished = false) => new(true, finished, false, x, y);
+Node T(double x, double y) => new(false, false, false, true, x, y);                       // teleport
+Node P(double x, double y) => new(false, false, false, false, x, y);                      // path / orientation, no fight
+Node F(double x, double y, bool done = false, bool skipped = false) => new(true, done, skipped, false, x, y);
 string Ix(PointSkipPlanner.Decision d) => string.Join(",", d.SkippedIndices);
 
+// ---------------- Planner ----------------
 // Segment: 0 teleport, 1-2 path, 3 fight, 4-5 path, 6 fight, 7 path, 8 fight
 var seg = new List<Node> { T(0, 0), P(10, 0), P(20, 0), F(30, 0), P(40, 0), P(50, 0), F(60, 0), P(70, 0), F(80, 0) };
-
-// Failure while approaching or fighting #3: skip #3, replay to the waypoint after it.
 foreach (var failing in new[] { 0, 1, 2, 3 })
 {
     var d = PointSkipPlanner.Decide(seg, failing, 0);
     Check(d.Outcome == Outcome.Resume && Ix(d) == "3" && d.ResumeIndex == 4, "Skip the encounter being approached/fought: failing=" + failing);
 }
 Check(PointSkipPlanner.Decide(seg, -7, 0).ResumeIndex == 4, "Negative index clamped");
-
-// Already finished (completed or skipped) fights are never picked again.
-var firstDone = new List<Node>(seg) { [3] = F(30, 0, finished: true) };
+var firstDone = new List<Node>(seg) { [3] = F(30, 0, done: true) };
 var d2 = PointSkipPlanner.Decide(firstDone, 3, 0);
-Check(d2.Outcome == Outcome.Resume && Ix(d2) == "6" && d2.ResumeIndex == 7, "Finished #3 is skipped over; the next unfinished fight is the failed one");
-var stale = PointSkipPlanner.Decide(firstDone, 0, 1);
-Check(Ix(stale) == "6", "A stale current index still never re-selects a finished/skipped fight");
-
-// Last fight fails -> finish segment, record the skip.
+Check(d2.Outcome == Outcome.Resume && Ix(d2) == "6" && d2.ResumeIndex == 7, "Completed #3 is passed; the next unfinished fight is the failed one");
+var firstSkipped = new List<Node>(seg) { [3] = F(30, 0, skipped: true) };
+Check(Ix(PointSkipPlanner.Decide(firstSkipped, 0, 1)) == "6", "A stale index never re-selects a skipped fight");
 var last = PointSkipPlanner.Decide(seg, 8, 1);
 Check(last.Outcome == Outcome.FinishSegment && Ix(last) == "8", "Failing last fight finishes the segment and records it");
 Check(PointSkipPlanner.Decide(seg, 7, 0).Outcome == Outcome.FinishSegment, "Approach to the last fight finishes the segment");
-
-// Nothing unfinished at/after the failure -> finish segment without recording a skip, even at the limit.
-var allDone = seg.Select(n => n.IsFight ? n with { Finished = true } : n).ToList();
+var allDone = seg.Select(n => n.IsFight ? n with { Completed = true } : n).ToList();
 var none = PointSkipPlanner.Decide(allDone, 4, PointSkipPlanner.MaxSkipsPerRoute);
 Check(none.Outcome == Outcome.FinishSegment && none.SkippedIndices.Count == 0, "All fights finished -> finish segment, no skip, no budget needed");
 Check(PointSkipPlanner.Decide(new List<Node>(), 0, 0).Outcome == Outcome.FinishSegment, "Empty segment finishes");
 Check(PointSkipPlanner.Decide(seg, 99, 0).Outcome == Outcome.FinishSegment, "Index past the end finishes");
-
-// Skip limit per route.
 var limited = PointSkipPlanner.Decide(seg, 3, PointSkipPlanner.MaxSkipsPerRoute);
 Check(limited.Outcome == Outcome.NotAllowed && limited.SkippedIndices.Count == 0, "At the limit nothing is skipped and the old failure applies");
 Check(PointSkipPlanner.Decide(seg, 3, PointSkipPlanner.MaxSkipsPerRoute - 1).Outcome == Outcome.Resume, "Below the limit skipping is allowed");
 
-// Same encounter: E018/ZE001-style repeated fights at the same spot are skipped together.
+// Same encounter, both directions (E018/ZE001/G002 style).
 var boss = new List<Node> { T(0, 0), P(20, 0), F(50, 50), P(50.5, 50), F(50, 50), P(120, 50), F(200, 50) };
 var bd = PointSkipPlanner.Decide(boss, 2, 0);
 Check(bd.Outcome == Outcome.Resume && Ix(bd) == "2,4" && bd.ResumeIndex == 5, "Same-spot repeat fights (with same-spot orientation between) form one encounter");
+var bossFirstDone = new List<Node>(boss) { [2] = F(50, 50, done: true) };
+var bfd = PointSkipPlanner.Decide(bossFirstDone, 4, 0);
+Check(Ix(bfd) == "2,4" && bfd.ResumeIndex == 5, "Backward: an already completed round of the same encounter is skipped with it");
 var bossOnly = new List<Node> { T(0, 0), P(20, 0), F(50, 50), F(51, 50) };
 var bod = PointSkipPlanner.Decide(bossOnly, 2, 0);
 Check(bod.Outcome == Outcome.FinishSegment && Ix(bod) == "2,3", "Two same-spot fights at the end finish the segment together");
 var near = new List<Node> { T(0, 0), F(50, 50), F(54.9, 50), F(60, 50), P(70, 50), F(90, 50) };
 var nd = PointSkipPlanner.Decide(near, 1, 0);
-Check(Ix(nd) == "1,2" && nd.ResumeIndex == 3, "Encounter grouping stops at the first waypoint >= 5 units away");
-var finishedRepeat = new List<Node> { T(0, 0), F(50, 50), F(50, 50, finished: true), F(50, 50), P(100, 50), F(150, 50) };
-var fd = PointSkipPlanner.Decide(finishedRepeat, 1, 0);
-Check(Ix(fd) == "1,3" && fd.ResumeIndex == 4, "A finished fight inside the same spot is passed over, not re-recorded");
+Check(Ix(nd) == "1,2" && nd.ResumeIndex == 3, "Encounter stops at the first waypoint >= 5 units away");
+var withSkipped = new List<Node> { T(0, 0), F(50, 50, skipped: true), F(50, 50, done: true), F(50, 50), P(100, 50), F(150, 50) };
+var wsd = PointSkipPlanner.Decide(withSkipped, 3, 1);
+Check(Ix(wsd) == "2,3" && wsd.ResumeIndex == 4, "Already skipped fights are never recorded twice");
 Check(PointSkipPlanner.SameSpotDistance == 5.0, "Same-spot threshold is 5 map units");
-
-// Resume needs the segment's own teleport; finishing does not.
 var noTp = new List<Node> { P(0, 0), F(10, 0), P(20, 0), F(30, 0) };
 var nt = PointSkipPlanner.Decide(noTp, 1, 0);
 Check(nt.Outcome == Outcome.NotAllowed && nt.SkippedIndices.Count == 0, "No teleport at segment start -> no replay, old behaviour");
 Check(PointSkipPlanner.Decide(noTp, 3, 0).Outcome == Outcome.FinishSegment, "Finishing a segment does not need a teleport");
-
-// Invariants over every failing index and skip count.
 for (var skips = 0; skips <= PointSkipPlanner.MaxSkipsPerRoute; skips++)
 for (var failing = -2; failing <= seg.Count + 1; failing++)
 {
@@ -81,7 +72,7 @@ for (var failing = -2; failing <= seg.Count + 1; failing++)
     {
         Check(d.SkippedIndices.Count > 0 && d.ResumeIndex > d.SkippedIndices.Max(), "Resume index strictly after every skipped index");
         Check(d.ResumeIndex < seg.Count && seg.Skip(d.ResumeIndex).Any(n => n.IsFight && !n.Finished), "Resume only when an unfinished fight remains");
-        Check(d.SkippedIndices.All(i => seg[i].IsFight && !seg[i].Finished), "Only unfinished fights are skipped");
+        Check(d.SkippedIndices.All(i => seg[i].IsFight && !seg[i].Skipped), "Only non-skipped fights are recorded");
         Check(skips < PointSkipPlanner.MaxSkipsPerRoute, "Resume never exceeds the per-route limit");
     }
     if (d.Outcome == Outcome.NotAllowed) Check(d.SkippedIndices.Count == 0, "NotAllowed never records skips");
@@ -89,4 +80,55 @@ for (var failing = -2; failing <= seg.Count + 1; failing++)
 Throws<ArgumentNullException>(() => PointSkipPlanner.Decide(null!, 0, 0), "Null segment rejected");
 Check(PointSkipPlanner.MaxSkipsPerRoute == 2, "Per-route skip limit is 2");
 
-Console.WriteLine(JsonSerializer.Serialize(new { passed, failed = 0, scope = "Linked production PointSkipPlanner.Decide; pure decision logic only." }));
+// ---------------- Tracker (executor state machine) ----------------
+Pt TP(int o, double x, double y) => new(false, o, true, x, y);
+Pt PP(int o, double x, double y) => new(false, o, false, x, y);
+Pt FP(int o, double x, double y) => new(true, o, false, x, y);
+// Single segment: 0 tp, 1-2 path, 3 fight, 4-5 path, 6 fight, 7 path, 8 fight (original index == segment index)
+var route = new List<Pt> { TP(0, 0, 0), PP(1, 10, 0), PP(2, 20, 0), FP(3, 30, 0), PP(4, 40, 0), PP(5, 50, 0), FP(6, 60, 0), PP(7, 70, 0), FP(8, 80, 0) };
+{
+    var t = new PointSkipTracker();
+    Check(t.ClampRecordIndex(0, 2) == 2 && !t.HasFloor(0), "No floor before any skip");
+    var a = t.Apply(0, route, 3, "revive-retry-exhausted");
+    Check(a.Outcome == Outcome.Resume && a.ResumeIndex == 4 && t.SkipEvents == 1, "First skip resumes after #3");
+    Check(t.IsDone(3) && t.Skipped.Count == 1 && t.Skipped[0] == (3, "revive-retry-exhausted"), "#3 recorded as skipped with its reason");
+    Check(t.HasFloor(0) && t.ClampRecordIndex(0, 2) == 4 && t.ClampRecordIndex(0, 6) == 6, "Replay retries never record a point before the floor");
+    var before = t.Apply(0, route, 2, "route-stuck");
+    Check(before.Outcome == Outcome.NotAllowed && before.Reason == "replay-before-floor", "A failure on the replay approach never skips a new, untried fight");
+    Check(t.Skipped.Count == 1 && t.SkipEvents == 1, "Replay-before-floor records nothing");
+    t.MarkCompleted(3);
+    Check(!t.Completed.Contains(3), "A skipped fight is never resurrected as completed");
+    var b = t.Apply(0, route, 6, "route-stuck");
+    Check(b.Outcome == Outcome.Resume && b.ResumeIndex == 7 && t.SkipEvents == 2, "Second skip after the floor");
+    Check(t.Apply(0, route, 8, "route-stuck").Outcome == Outcome.NotAllowed, "Third encounter hits the per-route limit");
+    Check(t.Skipped.Select(s => s.OriginalIndex).SequenceEqual(new[] { 3, 6 }) && t.Completed.Count == 0, "Bookkeeping after the limit");
+}
+{
+    // G002 style: round one (#6) completed, the team wipes twice on round two (#7) at the same spot.
+    var g = new List<Pt> { TP(0, 0, 0), PP(1, 20, 0), FP(6, 50, 50), FP(7, 50, 50), PP(8, 120, 50), FP(9, 200, 50) };
+    var t = new PointSkipTracker();
+    t.MarkCompleted(6);
+    var a = t.Apply(0, g, 3, "revive-retry-exhausted");
+    Check(a.Outcome == Outcome.Resume && Ix(a) == "2,3" && a.ResumeIndex == 4, "Whole encounter skipped, including the finished round");
+    Check(!t.Completed.Contains(6) && t.IsDone(6) && t.IsDone(7), "Finished round no longer counts as a completed encounter");
+    t.MarkCompleted(9);
+    Check(t.Completed.SequenceEqual(new[] { 9 }), "Only the genuinely completed encounter counts");
+    var only = new List<Pt> { TP(0, 0, 0), FP(6, 50, 50), FP(7, 50, 50) };
+    var t2 = new PointSkipTracker();
+    t2.MarkCompleted(6);
+    var f = t2.Apply(0, only, 2, "revive-retry-exhausted");
+    Check(f.Outcome == Outcome.FinishSegment && t2.Completed.Count == 0 && t2.Skipped.Count == 2, "Legend route with one encounter: nothing completed -> all-skipped failure, no CD");
+}
+{
+    // Floors are per segment; finishing a segment never consumes the budget when everything is done.
+    var t = new PointSkipTracker();
+    t.Apply(0, route, 3, "route-stuck");
+    Check(t.ClampRecordIndex(1, 2) == 2 && !t.HasFloor(1), "Another segment has no floor");
+    var t3 = new PointSkipTracker();
+    foreach (var o in new[] { 3, 6, 8 }) t3.MarkCompleted(o);
+    var done = t3.Apply(0, route, 8, "route-stuck");
+    Check(done.Outcome == Outcome.FinishSegment && done.SkippedIndices.Count == 0 && t3.SkipEvents == 0, "Failure after all fights: finish segment, no skip event");
+    Throws<ArgumentNullException>(() => t3.Apply(0, null!, 0, "x"), "Null points rejected");
+}
+
+Console.WriteLine(JsonSerializer.Serialize(new { passed, failed = 0, scope = "Linked production PointSkipPlanner.Decide + PointSkipTracker; pure decision and executor state logic." }));

@@ -6,22 +6,26 @@ namespace BetterGenshinImpact.GameTask.AutoPathing.Model;
 /// <summary>
 /// Per-point skip decisions for point-policy routes (pure logic, no game access).
 /// When the current fight point cannot be completed (verified defeat recovery or stuck retries
-/// exhausted, or a positioning failure), only that encounter is skipped. Fights at the same spot
-/// that directly follow it (the same boss fought twice) belong to the same encounter and are skipped
-/// together. If an unfinished fight remains in the segment, the executor replays the segment from
-/// its own teleport waypoint with every action suppressed until the waypoint after the skipped
-/// encounter (the existing retry-replay mechanism), then continues normally.
+/// exhausted, or a positioning failure), only that encounter is skipped. An encounter is the
+/// contiguous run of waypoints at the same spot (&lt; 5 map units) around the failed fight, so a boss
+/// fought twice at one spot is skipped as a whole, including a round that already finished.
+/// If an unfinished fight remains in the segment, the executor replays the segment from its own
+/// teleport waypoint with fight actions suppressed until the waypoint after the encounter.
 /// </summary>
 internal static class PointSkipPlanner
 {
     /// <summary>At most this many encounters may be skipped in one route run.</summary>
     internal const int MaxSkipsPerRoute = 2;
 
-    /// <summary>Fights closer than this (map units) to the skipped fight count as the same encounter.</summary>
+    /// <summary>Waypoints closer than this (map units) to the failed fight belong to the same encounter.</summary>
     internal const double SameSpotDistance = 5.0;
 
-    /// <param name="Finished">Fight already completed or already skipped in this run.</param>
-    internal readonly record struct Node(bool IsFight, bool Finished, bool IsTeleport, double X, double Y);
+    /// <param name="Completed">Fight finished normally in this run.</param>
+    /// <param name="Skipped">Fight already skipped in this run (never selected again).</param>
+    internal readonly record struct Node(bool IsFight, bool Completed, bool Skipped, bool IsTeleport, double X, double Y)
+    {
+        internal bool Finished => Completed || Skipped;
+    }
 
     internal enum Outcome
     {
@@ -29,10 +33,11 @@ internal static class PointSkipPlanner
         NotAllowed,
         /// <summary>Nothing left to fight in this segment: stop the segment here.</summary>
         FinishSegment,
-        /// <summary>Replay the segment from its teleport, suppressing actions before <see cref="Decision.ResumeIndex"/>.</summary>
+        /// <summary>Replay the segment from its teleport, suppressing fights before <see cref="Decision.ResumeIndex"/>.</summary>
         Resume
     }
 
+    /// <param name="SkippedIndices">Segment indices of the fights to record as skipped (may include a same-encounter fight that already completed).</param>
     internal sealed record Decision(Outcome Outcome, IReadOnlyList<int> SkippedIndices, int ResumeIndex, string Reason);
 
     internal static Decision Decide(IReadOnlyList<Node> nodes, int failingIndex, int skipsSoFar)
@@ -54,15 +59,15 @@ internal static class PointSkipPlanner
         if (skipsSoFar >= MaxSkipsPerRoute)
             return new Decision(Outcome.NotAllowed, Array.Empty<int>(), -1, "skip-limit");
 
-        // Same encounter: unfinished fights at (almost) the same spot right after the failed one,
-        // with only same-spot non-fight waypoints (e.g. orientation) in between.
-        var group = new List<int> { failed };
+        // Encounter = contiguous same-spot run around the failed fight (both directions).
+        var first = failed;
+        while (first - 1 >= 0 && Distance(nodes[first - 1], nodes[failed]) < SameSpotDistance) first--;
         var last = failed;
-        for (var i = failed + 1; i < nodes.Count; i++)
+        while (last + 1 < nodes.Count && Distance(nodes[last + 1], nodes[failed]) < SameSpotDistance) last++;
+        var group = new List<int>();
+        for (var i = first; i <= last; i++)
         {
-            if (Distance(nodes[i], nodes[failed]) >= SameSpotDistance) break;
-            if (nodes[i].IsFight && !nodes[i].Finished) group.Add(i);
-            last = i;
+            if (nodes[i].IsFight && !nodes[i].Skipped) group.Add(i);
         }
 
         var next = -1;

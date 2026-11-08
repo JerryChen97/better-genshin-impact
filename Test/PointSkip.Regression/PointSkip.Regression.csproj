@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Model/PointSkipPlanner.cs" Link="Production/PointSkipPlanner.cs" />
+    <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Model/PointSkipTracker.cs" Link="Production/PointSkipTracker.cs" />
   </ItemGroup>
 </Project>

@@ -107,14 +107,12 @@ public partial class PathExecutor
     //跳过除走路径以外的操作
     private bool _skipOtherOperations = false;
 
-    // 逐点跳过（仅按点策略路线的新接口启用）：一个战斗点重试耗尽或定位失败时只跳过该点，
-    // 传送到下一个未完成战斗点附近继续本段路径。记录本次运行已完成/被跳过的原始点位序号。
+    // 逐点跳过（仅按点策略路线的新接口启用）：一个战斗点重试耗尽或定位失败时只跳过这一场遭遇，
+    // 从本段自己的传送点重放路径并抑制此前的战斗动作，过了该遭遇再继续。状态由 PointSkipTracker 管理。
     internal bool PointSkipEnabled { get; set; }
-    private readonly HashSet<int> _completedFightPoints = new();
-    private readonly List<(int OriginalIndex, string Code)> _skippedFightPoints = new();
-    private int _skipEvents;
-    internal IReadOnlyCollection<int> CompletedFightPoints => _completedFightPoints;
-    internal IReadOnlyList<(int OriginalIndex, string Code)> SkippedFightPoints => _skippedFightPoints;
+    private readonly PointSkipTracker _pointSkip = new();
+    internal IReadOnlyCollection<int> CompletedFightPoints => _pointSkip.Completed;
+    internal IReadOnlyList<(int OriginalIndex, string Code)> SkippedFightPoints => _pointSkip.Skipped;
 
     // 最近一次获取派遣奖励的时间
     private DateTime _lastGetExpeditionRewardsTime = DateTime.MinValue;
@@ -150,24 +148,23 @@ public partial class PathExecutor
         _skipOtherOperations = true;
         RecordWaypoints = CurWaypoints;
         RecordWaypoint = CurWaypoint;
+        if (PointSkipEnabled && _pointSkip.HasFloor(CurWaypoints.Item1))
+        {
+            // 逐点跳过后的重放中再次重试：恢复点不能退回到被跳过的遭遇之前
+            var index = _pointSkip.ClampRecordIndex(CurWaypoints.Item1, CurWaypoint.Item1);
+            RecordWaypoint = (index, CurWaypoints.Item2[index]);
+        }
     }
 
-    private List<PointSkipPlanner.Node> ToPointSkipNodes(List<WaypointForTrack> waypoints)
-    {
-        var skipped = new HashSet<int>();
-        foreach (var s in _skippedFightPoints) skipped.Add(s.OriginalIndex);
-        return waypoints.Select(w =>
-        {
-            var isFight = w.Action == ActionEnum.Fight.Code;
-            var finished = isFight && (_completedFightPoints.Contains(w.OriginalPointIndex) || skipped.Contains(w.OriginalPointIndex));
-            return new PointSkipPlanner.Node(isFight, finished, w.Type == WaypointType.Teleport.Code, w.GameX, w.GameY);
-        }).ToList();
-    }
+    private static List<PointSkipTracker.Point> ToPointSkipPoints(List<WaypointForTrack> waypoints) =>
+        waypoints.Select(w => new PointSkipTracker.Point(w.Action == ActionEnum.Fight.Code, w.OriginalPointIndex,
+            w.Type == WaypointType.Teleport.Code, w.GameX, w.GameY)).ToList();
 
     /// <summary>
-    /// 当前战斗点无法完成时决定能否只跳过该点（连同紧随其后、同一位置的重复战斗点）。
-    /// 本段已无未完成战斗点则结束本段；否则从本段自己的传送点重放路径，跳过点位之前的所有动作，
-    /// 到达跳过点位之后的下一个路径点再恢复正常执行。超过每条路线的跳过上限时不允许。
+    /// 当前战斗点无法完成时决定能否只跳过这一场遭遇（同一位置连续的战斗点作为一场）。
+    /// 本段已无未完成战斗点则结束本段；否则从本段自己的传送点重放路径，抑制被跳过遭遇及之前的战斗动作
+    /// （combat_script 仍按原逻辑执行），到达遭遇之后的下一个路径点再恢复正常执行。
+    /// 超过每条路线的跳过上限，或重放仍未能越过上次被跳过的遭遇时，不允许跳过，按原规则处理本路线。
     /// </summary>
     private PointSkipPlanner.Outcome ApplyPointSkip(List<WaypointForTrack> waypoints, string code)
     {
@@ -177,7 +174,7 @@ public partial class PathExecutor
         }
 
         ct.ThrowIfCancellationRequested();
-        var decision = PointSkipPlanner.Decide(ToPointSkipNodes(waypoints), CurWaypoint.Item1, _skipEvents);
+        var decision = _pointSkip.Apply(CurWaypoints.Item1, ToPointSkipPoints(waypoints), CurWaypoint.Item1, code);
         if (decision.Outcome == PointSkipPlanner.Outcome.NotAllowed)
         {
             Logger.LogWarning("逐点跳过：不允许跳过（{Reason}），按原规则处理本路线", decision.Reason);
@@ -192,12 +189,6 @@ public partial class PathExecutor
             return decision.Outcome;
         }
 
-        _skipEvents++;
-        foreach (var index in decision.SkippedIndices)
-        {
-            _skippedFightPoints.Add((waypoints[index].OriginalPointIndex, code));
-        }
-
         var skippedText = string.Join("、", decision.SkippedIndices.Select(index => "#" + waypoints[index].OriginalPointIndex));
         if (decision.Outcome == PointSkipPlanner.Outcome.FinishSegment)
         {
@@ -206,7 +197,7 @@ public partial class PathExecutor
             return decision.Outcome;
         }
 
-        // 重放本段：从本段传送点出发，跳过 ResumeIndex 之前的所有动作（含被跳过的战斗点）。
+        // 重放本段：从本段传送点出发，抑制 ResumeIndex 之前的战斗等动作；被跳过/已完成的战斗点本次运行不会再打。
         _skipOtherOperations = true;
         RecordWaypoints = CurWaypoints;
         RecordWaypoint = (decision.ResumeIndex, waypoints[decision.ResumeIndex]);
@@ -317,8 +308,11 @@ public partial class PathExecutor
                             }
 
                             //skipOtherOperations如果重试，则跳过相关操作，
-                            if ((!string.IsNullOrEmpty(waypoint.Action) && !_skipOtherOperations) ||
-                                waypoint.Action == ActionEnum.CombatScript.Code)
+                            var fightAlreadyDone = PointSkipEnabled && waypoint.Action == ActionEnum.Fight.Code
+                                                   && _pointSkip.IsDone(waypoint.OriginalPointIndex);
+                            if (!fightAlreadyDone &&
+                                ((!string.IsNullOrEmpty(waypoint.Action) && !_skipOtherOperations) ||
+                                 waypoint.Action == ActionEnum.CombatScript.Code))
                             {
                                 //战斗前的节点记录，用于游泳检测回到战斗节点
                                 AutoFightTask.FightWaypoint = waypoint.Action == ActionEnum.Fight.Code ? waypoint : null;
@@ -327,7 +321,7 @@ public partial class PathExecutor
                                 await AfterMoveToTarget(waypoint);
                                 if (waypoint.Action == ActionEnum.Fight.Code)
                                 {
-                                    _completedFightPoints.Add(waypoint.OriginalPointIndex);
+                                    _pointSkip.MarkCompleted(waypoint.OriginalPointIndex);
                                 }
                             }
                         }
@@ -401,7 +395,7 @@ public partial class PathExecutor
                 catch (PointLootRouteFailureException positioning) when (PointLootSession is not null && PointSkipEnabled
                                                                           && positioning.Code is "target-too-far" or "position-unrecognized")
                 {
-                    // 定位失败：只跳过当前战斗点，传送到下一个战斗点附近重新定位
+                    // 定位失败：只跳过当前遭遇，按逐点跳过规则从本段传送点重放（受跳过上限和重放下限约束）
                     ct.ThrowIfCancellationRequested();
                     Logger.LogWarning(positioning.Message);
                     var skip = ApplyPointSkip(waypoints, positioning.Code);
