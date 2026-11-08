@@ -4,89 +4,88 @@ using System.Collections.Generic;
 namespace BetterGenshinImpact.GameTask.AutoPathing.Model;
 
 /// <summary>
-/// Per-point skip planning for point-policy routes (pure logic, no game access).
-/// When one fight point cannot be completed (verified defeat recovery or stuck retries
-/// exhausted, or a positioning failure), only that fight point is skipped. The executor
-/// then teleports to the teleport point nearest the next unfinished fight point and
-/// rejoins the remaining path at the waypoint closest to where it landed.
+/// Per-point skip decisions for point-policy routes (pure logic, no game access).
+/// When the current fight point cannot be completed (verified defeat recovery or stuck retries
+/// exhausted, or a positioning failure), only that encounter is skipped. Fights at the same spot
+/// that directly follow it (the same boss fought twice) belong to the same encounter and are skipped
+/// together. If an unfinished fight remains in the segment, the executor replays the segment from
+/// its own teleport waypoint with every action suppressed until the waypoint after the skipped
+/// encounter (the existing retry-replay mechanism), then continues normally.
 /// </summary>
 internal static class PointSkipPlanner
 {
-    /// <summary>At most this many fight points may be skipped in one route run.</summary>
+    /// <summary>At most this many encounters may be skipped in one route run.</summary>
     internal const int MaxSkipsPerRoute = 2;
 
-    internal readonly record struct Node(bool IsFight, bool Completed, double X, double Y);
+    /// <summary>Fights closer than this (map units) to the skipped fight count as the same encounter.</summary>
+    internal const double SameSpotDistance = 5.0;
 
-    /// <summary>
-    /// FailedFight: segment index of the first unfinished fight point at or after the failing
-    /// waypoint (-1 when no unfinished fight remains in the segment).
-    /// NextFight: segment index of the next unfinished fight point after FailedFight
-    /// (-1 when nothing is left to fight in the segment).
-    /// </summary>
-    internal readonly record struct Plan(int FailedFight, int NextFight)
+    /// <param name="Finished">Fight already completed or already skipped in this run.</param>
+    internal readonly record struct Node(bool IsFight, bool Finished, bool IsTeleport, double X, double Y);
+
+    internal enum Outcome
     {
-        internal bool HasFailedFight => FailedFight >= 0;
-        internal bool HasNextFight => NextFight >= 0;
+        /// <summary>Keep the previous behaviour (terminal failure for this route).</summary>
+        NotAllowed,
+        /// <summary>Nothing left to fight in this segment: stop the segment here.</summary>
+        FinishSegment,
+        /// <summary>Replay the segment from its teleport, suppressing actions before <see cref="Decision.ResumeIndex"/>.</summary>
+        Resume
     }
 
-    internal static Plan Create(IReadOnlyList<Node> nodes, int failingIndex)
+    internal sealed record Decision(Outcome Outcome, IReadOnlyList<int> SkippedIndices, int ResumeIndex, string Reason);
+
+    internal static Decision Decide(IReadOnlyList<Node> nodes, int failingIndex, int skipsSoFar)
     {
         ArgumentNullException.ThrowIfNull(nodes);
         var start = Math.Max(0, failingIndex);
         var failed = -1;
         for (var i = start; i < nodes.Count; i++)
         {
-            if (nodes[i].IsFight && !nodes[i].Completed)
+            if (nodes[i].IsFight && !nodes[i].Finished)
             {
                 failed = i;
                 break;
             }
         }
 
-        if (failed < 0) return new Plan(-1, -1);
+        if (failed < 0)
+            return new Decision(Outcome.FinishSegment, Array.Empty<int>(), -1, "no-unfinished-fight");
+        if (skipsSoFar >= MaxSkipsPerRoute)
+            return new Decision(Outcome.NotAllowed, Array.Empty<int>(), -1, "skip-limit");
 
-        var next = -1;
+        // Same encounter: unfinished fights at (almost) the same spot right after the failed one,
+        // with only same-spot non-fight waypoints (e.g. orientation) in between.
+        var group = new List<int> { failed };
+        var last = failed;
         for (var i = failed + 1; i < nodes.Count; i++)
         {
-            if (nodes[i].IsFight && !nodes[i].Completed)
+            if (Distance(nodes[i], nodes[failed]) >= SameSpotDistance) break;
+            if (nodes[i].IsFight && !nodes[i].Finished) group.Add(i);
+            last = i;
+        }
+
+        var next = -1;
+        for (var i = last + 1; i < nodes.Count; i++)
+        {
+            if (nodes[i].IsFight && !nodes[i].Finished)
             {
                 next = i;
                 break;
             }
         }
 
-        return new Plan(failed, next);
+        if (next < 0)
+            return new Decision(Outcome.FinishSegment, group, -1, "no-next-fight");
+        if (nodes.Count == 0 || !nodes[0].IsTeleport)
+            return new Decision(Outcome.NotAllowed, Array.Empty<int>(), -1, "segment-has-no-teleport");
+        return new Decision(Outcome.Resume, group, last + 1, "resume");
     }
 
-    /// <summary>
-    /// Waypoint index in (failedFight, nextFight] closest to the landing point; ties keep the
-    /// later (closer to the next fight) index so no path towards the next fight is replayed
-    /// unnecessarily. Never returns an index at or before the skipped fight point.
-    /// </summary>
-    internal static int JoinIndex(IReadOnlyList<Node> nodes, Plan plan, double landX, double landY)
+    private static double Distance(Node a, Node b)
     {
-        ArgumentNullException.ThrowIfNull(nodes);
-        if (!plan.HasFailedFight || !plan.HasNextFight || plan.NextFight <= plan.FailedFight || plan.NextFight >= nodes.Count)
-            throw new ArgumentException("A join index needs a skipped fight followed by a next fight.", nameof(plan));
-        var best = plan.NextFight;
-        var bestDistance = Distance(nodes[best], landX, landY);
-        for (var i = plan.NextFight - 1; i > plan.FailedFight; i--)
-        {
-            var distance = Distance(nodes[i], landX, landY);
-            if (distance < bestDistance)
-            {
-                best = i;
-                bestDistance = distance;
-            }
-        }
-
-        return best;
-    }
-
-    private static double Distance(Node node, double x, double y)
-    {
-        var dx = node.X - x;
-        var dy = node.Y - y;
+        var dx = a.X - b.X;
+        var dy = a.Y - b.Y;
         return Math.Sqrt(dx * dx + dy * dy);
     }
 }
