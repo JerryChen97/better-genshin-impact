@@ -9,6 +9,9 @@ namespace BetterGenshinImpact.GameTask.AutoPathing.Model;
 [Serializable]
 public class WaypointForTrack : Waypoint
 {
+    // Runtime-only fields: never added to route JSON or persisted configuration.
+    internal PointLootSession? PointLootSession { get; set; }
+    internal int OriginalPointIndex { get; set; }
     // 原神坐标系
     public double GameX { get; set; }
 

@@ -23,6 +23,7 @@ using BetterGenshinImpact.GameTask.AutoFight.Assets;
 using BetterGenshinImpact.ViewModel.Pages;
 using BetterGenshinImpact.ViewModel.Windows;
 using BetterGenshinImpact.GameTask.AutoPathing;
+using BetterGenshinImpact.GameTask.AutoPathing.Model;
 using BetterGenshinImpact.GameTask.AutoPathing.Model.Enum;
 using BetterGenshinImpact.Core.Recognition.ONNX;
 using Compunet.YoloSharp;
@@ -148,7 +149,7 @@ public class Avatar
             // 先打开地图
             InputHub.Foreground.Keyboard.KeyPress(User32.VK.VK_ESCAPE); // NOTE: 此处按下Esc是为了关闭复苏界面，无需改键
             Sleep(600, ct);
-            TpForRecover(ct, new RetryException("检测到复苏界面，存在角色被击败，前往七天神像复活"));
+            TpForRecover(ct, new RetryException("检测到复苏界面，存在角色被击败，前往七天神像复活"), defeated: true);
         }
         else if (AutoFightParam.SwimmingEnabled && AutoFightTask.FightStatusFlag && SwimmingConfirm(region))
         {
@@ -250,8 +251,18 @@ public class Avatar
     /// <param name="ct"></param>
     /// <param name="retryException"></param>
     /// <exception cref="RetryException"></exception>
-    public static void TpForRecover(CancellationToken ct, RetryException retryException)
+    public static void TpForRecover(CancellationToken ct, RetryException retryException, bool defeated = false)
     {
+        if (PointLootRecoveryScope.IsActive)
+        {
+            PointLootRecoveryScope.RecoverThenRetry(
+                () => new TpTask(ct).TpToStatueOfTheSeven().WaitAsync(ct).GetAwaiter().GetResult(),
+                () =>
+                {
+                    using var region = CaptureToRectArea();
+                    return Bv.IsInMainUi(region) && !Bv.IsInRevivePrompt(region);
+                }, ct, defeated, retryException);
+        }
         try
         {
             // tp 到七天神像复活。保留等待取消能力，同时避免 Wait 将原异常包装为 AggregateException。
@@ -320,9 +331,9 @@ public class Avatar
     /// 尝试切换到本角色
     /// </summary>
     /// <param name="tryTimes"></param>
-    /// <param name="needLog"></param>
+    /// <param name="recoveryCt">Optional route token that keeps recovery independent of revocable post-fight work.</param>
     /// <returns></returns>
-    public bool TrySwitch(int tryTimes = 4)
+    public bool TrySwitch(int tryTimes = 4, CancellationToken? recoveryCt = null)
     {
         var context = new AvatarActiveCheckContext();
         var shouldResendSwitchAction = CombatScenes.UpdateTrySwitchTarget(Index);
@@ -334,7 +345,9 @@ public class Avatar
             }
 
             using var region = CaptureToRectArea();
-            ThrowWhenDefeated(region, Ct);
+            // Optional post-fight work may be revoked independently, but an entered recovery must
+            // finish with the route token and propagate its RetryException instead of returning at the statue.
+            ThrowWhenDefeated(region, recoveryCt ?? Ct);
 
             if (CombatScenes.GetActiveAvatarIndex(region, context) == Index)
             {

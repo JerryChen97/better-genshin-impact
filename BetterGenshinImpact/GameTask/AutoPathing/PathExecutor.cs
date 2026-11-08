@@ -53,6 +53,15 @@ public partial class PathExecutor
     private PathingPartyConfig? _partyConfig;
     private CancellationToken ct;
     private PathExecutorSuspend pathExecutorSuspend;
+    internal PointLootSession? PointLootSession { get; set; }
+
+    internal void ClearPointLootRun()
+    {
+        PointLootSession?.Revoke();
+        var suspendables = RunnerContext.Instance.SuspendableDictionary;
+        if (suspendables.TryGetValue("PathExecutor", out var owner) && ReferenceEquals(owner, pathExecutorSuspend))
+            suspendables.Remove("PathExecutor");
+    }
 
     public PathExecutor(CancellationToken ct)
     {
@@ -127,6 +136,7 @@ public partial class PathExecutor
     //记录点位，方便后面恢复
     public void StartSkipOtherOperations()
     {
+        PointLootSession?.Revoke();
         Logger.LogWarning("记录恢复点位，地图追踪将到达上次点位之前将跳过走路之外的操作");
         _skipOtherOperations = true;
         RecordWaypoints = CurWaypoints;
@@ -185,6 +195,7 @@ public partial class PathExecutor
 
                     foreach (var waypoint in waypoints) // 一条路径
                     {
+                        PointLootSession?.Revoke();
                         CurWaypoint = (waypoints.FindIndex(wps => wps == waypoint), waypoint);
                         TryCloseSkipOtherOperations();
                         await RecoverWhenLowHp(waypoint); // 低血量恢复
@@ -252,11 +263,13 @@ public partial class PathExecutor
                 }
                 catch (HandledException handledException)
                 {
+                    if (PointLootSession is not null) throw;
                     SuccessEnd = true;
                     break;
                 }
                 catch (NormalEndException normalEndException)
                 {
+                    if (PointLootSession is not null) throw;
                     if (!ct.IsCancellationRequested)
                     {
                         Logger.LogInformation(normalEndException.Message);
@@ -273,6 +286,7 @@ public partial class PathExecutor
                 }
                 catch (OperationCanceledException)
                 {
+                    if (PointLootSession is not null) throw;
                     if (!RunnerContext.Instance.isAutoFetchDispatch && RunnerContext.Instance.IsContinuousRunGroup)
                     {
                         throw;
@@ -286,6 +300,8 @@ public partial class PathExecutor
                 {
                     StartSkipOtherOperations();
                     Logger.LogWarning(retryException.Message);
+                    PointLootRouteRetryException.ThrowIfExhausted(retryException,
+                        PointLootSession is not null, i == RetryTimes - 1, ct);
                 }
                 catch (RetryNoCountException retryException)
                 {
@@ -296,6 +312,7 @@ public partial class PathExecutor
                 }
                 finally
                 {
+                    PointLootSession?.Revoke();
                     // 不管咋样，松开所有按键
                     InputHub.Foreground.Keyboard.KeyUp(User32.VK.VK_W);
                     InputHub.Foreground.Mouse.RightButtonUp();
@@ -541,12 +558,14 @@ public partial class PathExecutor
     private List<List<WaypointForTrack>> ConvertWaypointsForTrack(List<Waypoint> positions, PathingTask task)
     {
         // 把 X Y 转换为 MatX MatY
-        var allList = positions.Select(waypoint =>
+        var allList = positions.Select((waypoint, originalPointIndex) =>
         {
             WaypointForTrack wft = new WaypointForTrack(waypoint, task.Info.MapName, task.Info.MapMatchMethod);
             wft.Misidentification=waypoint.PointExtParams.Misidentification;
             wft.MonsterTag = waypoint.PointExtParams.MonsterTag;
             wft.EnableMonsterLootSplit = waypoint.PointExtParams.EnableMonsterLootSplit;
+            wft.PointLootSession = PointLootSession;
+            wft.OriginalPointIndex = originalPointIndex;
             return wft;
         }).ToList();
 
@@ -830,11 +849,17 @@ public partial class PathExecutor
                     {
                         if (position == new Point2f())
                         {
+                            if (PointLootSession is not null)
+                                throw new PointLootRouteFailureException(PointLootRouteFailureReason.PositionUnrecognized,
+                                    "重试多次后，当前点位无法被识别，放弃此路径！");
                             throw new HandledException("重试多次后，当前点位无法被识别，放弃此路径！");
                         }
                         else
                         {
                             Logger.LogWarning($"距离过远（{position.X},{position.Y}）->（{waypoint.X},{waypoint.Y}）={distance}，重试多次后仍然失败，放弃此路径点！");
+                            if (PointLootSession is not null)
+                                throw new PointLootRouteFailureException(PointLootRouteFailureReason.TargetTooFar,
+                                    "目标距离过远，可能是当前点位无法识别，放弃此路径！");
                             throw new HandledException("目标距离过远，可能是当前点位无法识别，放弃此路径！");
                         }
                     }
@@ -878,7 +903,10 @@ public partial class PathExecutor
                             _inTrap++;
                             if (_inTrap > 2)
                             {
-                                throw new RetryException("此路线出现3次卡死，重试一次路线或放弃此路线！");
+                                const string stuckMessage = "此路线出现3次卡死，重试一次路线或放弃此路线！";
+                                if (PointLootSession is not null)
+                                    throw new PointLootRouteRetryException(PointLootRouteFailureReason.RouteStuck, stuckMessage);
+                                throw new RetryException(stuckMessage);
                             }
 
                             Logger.LogWarning("疑似卡死，尝试脱离...");

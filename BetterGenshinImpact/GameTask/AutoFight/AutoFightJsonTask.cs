@@ -160,6 +160,8 @@ public class AutoFightJsonTask : ISoloTask
     
             if (validActions.Count == 0)
             {
+                if (_taskParam.PointLootPolicyActive)
+                    throw new InvalidOperationException("JSON strategy has no usable combat actions for point loot.");
                 Logger.LogWarning("JSON 策略：没有可用的动作节点，跳过战斗");
                 return;
             }
@@ -546,6 +548,7 @@ public class AutoFightJsonTask : ISoloTask
         }
         catch (Exception e)
         {
+            if (_taskParam.PointLootPolicyActive) throw;
             Logger.LogError("自动战斗：{Name} 执行失败：{Msg}", action.Name, e.Message);
         }
         finally

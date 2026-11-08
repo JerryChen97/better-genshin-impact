@@ -1,9 +1,14 @@
 using System;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using BetterGenshinImpact.GameTask.AutoPathing;
 using BetterGenshinImpact.GameTask.AutoPathing.Model;
 using System.Threading.Tasks;
 using BetterGenshinImpact.Core.Config;
 using BetterGenshinImpact.GameTask.Common;
+using BetterGenshinImpact.GameTask;
+using BetterGenshinImpact.GameTask.AutoPathing.Model.Enum;
 using Microsoft.Extensions.Logging;
 
 namespace BetterGenshinImpact.Core.Script.Dependence;
@@ -13,6 +18,10 @@ public class AutoPathingScript
     private object? _config = null;
     private string _rootPath;
     private readonly LimitedFile _autoPathingFile;
+    private readonly object _runGate = new();
+    private bool _running;
+    private bool _pointLootEnabled = true;
+    private PointLootSession? _pointLootSession;
 
     public AutoPathingScript(string rootPath, object? config)
     {
@@ -23,8 +32,11 @@ public class AutoPathingScript
 
     public async Task Run(string json)
     {
+        var entered = false;
         try
         {
+            EnterRun();
+            entered = true;
             var task = PathingTask.BuildFromJson(json);
             var pathExecutor = new PathExecutor(CancellationContext.Instance.Cts.Token);
             if (_config != null && _config is PathingPartyConfig patyConfig)
@@ -38,6 +50,123 @@ public class AutoPathingScript
         {
             TaskControl.Logger.LogDebug(e,"执行地图追踪时候发生错误");
             TaskControl.Logger.LogError("执行地图追踪时候发生错误: {Msg}",e.Message);
+        }
+        finally
+        {
+            if (entered) ExitRun();
+        }
+    }
+
+    /// <summary>
+    /// Runs one complete route with an invocation-local point policy. Unlike Run, failures propagate.
+    /// Point indices refer to the original positions array; acknowledgement only ends a pickup attempt.
+    /// </summary>
+    public async Task RunWithLootPolicy(string routeJson, string policyJson)
+    {
+        // Keep the deployed API's reject-on-failure contract for older JS callers.
+        await RunWithLootPolicyCore(routeJson, policyJson, false);
+    }
+
+    /// <summary>
+    /// Returns an identity-bound result for complete routes or explicitly typed route-local failures.
+    /// Cancellation, policy/configuration errors and all other failures still propagate.
+    /// </summary>
+    public Task<string> RunWithLootPolicyResult(string routeJson, string policyJson) =>
+        RunWithLootPolicyCore(routeJson, policyJson, true);
+
+    private async Task<string> RunWithLootPolicyCore(string routeJson, string policyJson, bool returnLocalFailure)
+    {
+        EnterRun();
+        PointLootSession? session = null;
+        PathExecutor? executor = null;
+        try
+        {
+            var task = PathingTask.BuildFromJson(routeJson);
+            if (task.Positions.Count == 0) throw new ArgumentException("Route has no positions.", nameof(routeJson));
+            session = PointLootSession.Parse(policyJson, routeJson, task.Positions.Count,
+                index => task.Positions[index].Action == ActionEnum.Fight.Code);
+            lock (_runGate)
+            {
+                session.SetEnabled(_pointLootEnabled);
+                _pointLootSession = session;
+            }
+            var ct = CancellationContext.Instance.Cts.Token;
+            using var registration = ct.Register(session.Revoke);
+            ct.ThrowIfCancellationRequested();
+            executor = new PathExecutor(ct) { PointLootSession = session };
+            if (_config is PathingPartyConfig partyConfig) executor.PartyConfig = partyConfig;
+            using var recoveryScope = PointLootRecoveryScope.Enter();
+            try
+            {
+                await RunnerContext.Instance.StopAutoPickRunTask(() => executor.Pathing(task));
+            }
+            catch (PointLootRouteFailureException failure) when (returnLocalFailure)
+            {
+                ct.ThrowIfCancellationRequested();
+                return RouteResult(routeJson, false, failure.Code, failure.Message);
+            }
+            ct.ThrowIfCancellationRequested();
+            if (!executor.SuccessEnd) throw new InvalidOperationException("Point-policy route did not complete.");
+            return RouteResult(routeJson, true, "completed", "完整路线执行结束");
+        }
+        finally
+        {
+            try
+            {
+                session?.Dispose();
+                executor?.ClearPointLootRun();
+            }
+            finally
+            {
+                ExitRun();
+            }
+        }
+    }
+
+    private static string RouteResult(string routeJson, bool success, string code, string message) =>
+        JsonSerializer.Serialize(new
+        {
+            schema = 1,
+            success,
+            code,
+            routeSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(routeJson))).ToLowerInvariant(),
+            message
+        });
+
+    public string GetPointLootContext()
+    {
+        lock (_runGate) return _pointLootSession?.GetContextJson() ?? "null";
+    }
+
+    public bool CompletePointLootWindow(string token)
+    {
+        lock (_runGate) return _pointLootSession?.Complete(token) ?? false;
+    }
+
+    public void SetPointLootEnabled(bool enabled)
+    {
+        lock (_runGate)
+        {
+            _pointLootEnabled = enabled;
+            _pointLootSession?.SetEnabled(enabled);
+        }
+    }
+
+    private void EnterRun()
+    {
+        lock (_runGate)
+        {
+            if (_running) throw new InvalidOperationException("This pathingScript instance already has an active route.");
+            _running = true;
+        }
+    }
+
+    private void ExitRun()
+    {
+        lock (_runGate)
+        {
+            _pointLootSession = null;
+            _running = false;
         }
     }
 

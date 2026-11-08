@@ -10,6 +10,8 @@ namespace BetterGenshinImpact.GameTask.AutoFight;
 
 public class AutoFightParam : BaseTaskParam<AutoFightTask>
 {
+    // Runtime-only: scoped callers require errors to propagate rather than opening a stale loot window.
+    internal bool PointLootPolicyActive { get; set; }
     /// <summary>
     /// 自动连招（LLM 行为树）策略的固定名称；该名称不对应任何策略文件，
     /// 命中时由 ComboCombatTaskFactory 路由到 AutoComboRunTask，并复用此名称作为 CombatStrategyPath

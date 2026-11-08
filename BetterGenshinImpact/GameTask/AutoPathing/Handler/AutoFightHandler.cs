@@ -40,6 +40,21 @@ internal class AutoFightHandler : IActionHandler
             taskParams = new AutoFightParam(GetFightStrategy(), TaskContext.Instance().Config.AutoFightConfig);
         }
 
+        if (waypointForTrack?.PointLootSession is { } lootSession)
+        {
+            if (taskParams.CombatStrategyPath == AutoFightParam.ComboStrategyName)
+                throw new NotSupportedException("Point loot policies require a TXT or JSON combat strategy.");
+            // This fresh parameter copy belongs to one fight. The policy owns both gather and F windows.
+            taskParams.PointLootPolicyActive = true;
+            taskParams.KazuhaPickupEnabled = false;
+            taskParams.PickDropsAfterFightEnabled = false;
+            var scopedFactory = CombatTaskFactoryProvider.GetFactory(taskParams.CombatStrategyPath);
+            await lootSession.RunFightAsync(waypointForTrack.OriginalPointIndex, ct,
+                () => scopedFactory.CreateTask(taskParams).Start(ct),
+                attempt => PointLootGatherTask.RunAsync(lootSession, attempt, ct));
+            return;
+        }
+
         //根据怪物标签，调整拾取配置
         if (waypointForTrack!=null && waypointForTrack.EnableMonsterLootSplit)
         {
