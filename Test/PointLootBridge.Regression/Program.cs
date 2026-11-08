@@ -411,6 +411,8 @@ using (var routeCts = new CancellationTokenSource())
     void Frames(params bool[] frames) { Bv.MainUiFrames.Clear(); foreach (var f in frames) Bv.MainUiFrames.Enqueue(f); }
     var holdBefore = TaskControl.HoldCalls;
     var plungeBefore = TaskControl.PlungeCalls;
+    var escRoundsBefore = BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts;
+    var releasesBeforeConfirm = BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls;
 
     Frames(true, true, false, true, true, true);
     Bv.MainUiReads = 0;
@@ -429,15 +431,25 @@ using (var routeCts = new CancellationTokenSource())
           && warnings.Contains("回七天神像后未能确认主界面稳定且血量正常，按普通重试处理"), "Healed confirmation also requires normal HP");
     Bv.LowHp = false;
     Check(await PointLootMainUi.ConfirmHealedAsync(default), "Stable main UI with normal HP is a healed confirmation");
-    Check(TaskControl.HoldCalls == holdBefore && TaskControl.PlungeCalls == plungeBefore, "Confirmation sends no game input");
+    Check(TaskControl.HoldCalls == holdBefore && TaskControl.PlungeCalls == plungeBefore
+          && BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts == escRoundsBefore
+          && BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls == releasesBeforeConfirm, "Confirmation sends no game input");
 
     var releasesBefore = BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls;
+    var debugsBefore = Microsoft.Extensions.Logging.LoggingExtensions.Debugs.Count;
     BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts = 0;
+    BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.OnStart = ct =>
+        Check(BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls == releasesBefore + 1 && !ct.IsCancellationRequested,
+            "Inputs are released before every ESC round");
     Frames(Enumerable.Repeat(false, PointLootMainUi.MaxObservations).Concat(new[] { true, true, true }).ToArray());
     Check(await PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, default)
           && BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts == 2
           && BetterGenshinImpact.Core.Input.InputHub.ReleaseCalls == releasesBefore + 1,
-        "Restore releases inputs first and confirms in a second round");
+        "Restore releases inputs once and confirms in a second round");
+    BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.OnStart = null;
+    Check(Microsoft.Extensions.Logging.LoggingExtensions.Debugs.Skip(debugsBefore)
+              .Any(d => ReferenceEquals(d.Error, timeout) && d.Text == "七天神像传送超时"),
+        "The timeout and its inner stack reach the DBG log");
     Frames();
     Bv.MainUi = false;
     BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts = 0;
@@ -463,6 +475,19 @@ using (var routeCts = new CancellationTokenSource())
         await Throws<BetterGenshinImpact.GameTask.AutoGeniusInvokation.Exception.NormalEndException>(() => PointLootMainUi.ConfirmAsync(cancelled.Token));
         TaskControl.BeforeDelay = null;
         Frames();
+    }
+    using (var cancelled = new CancellationTokenSource())
+    {
+        // A stop during the last observation of round one ends that round without an exception; the next round
+        // must not press ESC again.
+        Bv.MainUi = false;
+        Bv.MainUiReads = 0;
+        BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts = 0;
+        Bv.OnRead = reads => { if (reads == PointLootMainUi.MaxObservations) cancelled.Cancel(); };
+        await Throws<OperationCanceledException>(() => PointLootMainUi.RestoreAfterTeleportTimeoutAsync(timeout, cancelled.Token));
+        Check(BetterGenshinImpact.GameTask.Common.Job.ReturnMainUiTask.Starts == 1, "No ESC round after a stop between rounds");
+        Bv.OnRead = null;
+        Bv.MainUi = true;
     }
 }
 

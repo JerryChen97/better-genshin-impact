@@ -10,7 +10,8 @@ namespace Microsoft.Extensions.Logging
 {
     public static class LoggingExtensions
     {
-        public static void LogDebug(this object logger, Exception e, string text) { }
+        public static readonly List<(Exception Error, string Text)> Debugs = new();
+        public static void LogDebug(this object logger, Exception e, string text) { Debugs.Add((e, text)); }
         public static void LogError(this object logger, string text, string message) { }
         public static void LogInformation(this object logger, string text) { }
         public static readonly List<string> Warnings = new();
@@ -118,8 +119,9 @@ namespace BetterGenshinImpact.GameTask.AutoFight.Model
     }
     // Production Avatar.RecoverFromRevivePrompt closes the prompt, recovers at the statue and always throws. Inside a
     // point-policy scope: the verified revive retry after a completed recovery with a confirmed main UI, or after a
-    // restored statue-teleport timeout; InvalidOperationException for an unconfirmed main UI; cancellation surfaces as
-    // OperationCanceledException; other recovery failures propagate unchanged. The stub models the completed recovery.
+    // restored statue-teleport timeout; InvalidOperationException for an unconfirmed main UI; a stop surfaces as
+    // NormalEndException before the statue recovery starts and as OperationCanceledException inside it; other recovery
+    // failures propagate unchanged. The stub models the completed recovery.
     public static class Avatar
     {
         public static int RecoverCalls;
@@ -147,9 +149,11 @@ namespace BetterGenshinImpact.GameTask.Common.BgiVision
         public static bool RevivePrompt;
         public static Queue<bool> MainUiFrames { get; } = new();
         public static int MainUiReads;
+        public static Action<int>? OnRead;
         public static bool IsInMainUi(object capture)
         {
             MainUiReads++;
+            OnRead?.Invoke(MainUiReads);
             return MainUiFrames.Count > 0 ? MainUiFrames.Dequeue() : MainUi;
         }
         public static bool IsInRevivePrompt(object capture) => RevivePrompt;
