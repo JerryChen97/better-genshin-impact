@@ -569,12 +569,20 @@ namespace BetterGenshinImpact.GameTask
             var slots = _slots;
             var disabledByUser = false;
             var activeTriggers = new List<ITaskTrigger>(slots.Count);
+            var ordinaryPickActive = inTask
+                ? FindLastLease(leases, typeof(AutoPickTrigger)) != null
+                : TaskContext.Instance().Config.AutoPickConfig.Enabled;
             foreach (var slot in slots)
             {
                 var trigger = slot.Trigger;
                 bool shouldBeActive;
                 object? options = null;
-                if (inTask)
+                if (trigger is GlobalPickupTrigger)
+                {
+                    // 任务租约不能清除全局白名单；普通拾取运行时避免重复识别。
+                    shouldBeActive = !ordinaryPickActive && trigger.IsEnabledByConfig;
+                }
+                else if (inTask)
                 {
                     var lease = FindLastLease(leases, trigger.GetType());
                     shouldBeActive = lease != null;

@@ -24,6 +24,10 @@ namespace BetterGenshinImpact.GameTask.AutoPick;
 
 public partial class AutoPickTrigger : ITaskTrigger
 {
+    private readonly bool _globalOnly;
+
+    public AutoPickTrigger(bool globalOnly = false) { _globalOnly = globalOnly; }
+
     private readonly ILogger<AutoPickTrigger> _logger = App.GetLogger<AutoPickTrigger>();
 
     public string Name => "自动拾取";
@@ -232,6 +236,7 @@ public partial class AutoPickTrigger : ITaskTrigger
 
         if (foundRectArea.IsEmpty())
         {
+            if (_globalOnly) return;
             // 没有识别到F键，先判断是否有滚轮图标信息
             if (HasScrollIcon(content.CaptureRectArea))
             {
@@ -245,12 +250,10 @@ public partial class AutoPickTrigger : ITaskTrigger
 
         speedTimer.Record($"识别到拾取键");
 
-        if (_externalConfig is { ForceInteraction: true })
-        {
-            LogPick(content, "直接拾取");
-            InputHub.Foreground.Keyboard.KeyPress(_autoPickAssets.PickVk);
-            return;
-        }
+        var globalRules = GlobalPickupPolicy.Rules.GetSnapshot();
+        if (!globalRules.IsValid) return;
+        var forceInteraction = _externalConfig is { ForceInteraction: true };
+        // 必须先识别文字；强制交互不能绕过全局黑名单。
 
         var scale = TaskContext.Instance().SystemInfo.AssetScale;
         var config = TaskContext.Instance().Config.AutoPickConfig;
@@ -258,7 +261,7 @@ public partial class AutoPickTrigger : ITaskTrigger
 
         // 存在 L 键位是千星奇遇，无需拾取
         using var lKeyRa = content.CaptureRectArea.Find(RecognitionAssets.Get("AutoPick", "L", content.CaptureRectArea));
-        if (lKeyRa.IsExist())
+        if (!forceInteraction && lKeyRa.IsExist())
         {
             return;
         }
@@ -290,7 +293,7 @@ public partial class AutoPickTrigger : ITaskTrigger
             }
         }
 
-        if (config.Mode == AutoPickMode.Whitelist)
+        if (!forceInteraction && config.Mode == AutoPickMode.Whitelist)
         {
             // 白名单模式下，安全图标排除优先于拾取列表。
             if (isExcludeIcon)
@@ -298,7 +301,7 @@ public partial class AutoPickTrigger : ITaskTrigger
                 return;
             }
         }
-        else if (!config.BlacklistModePickEnabled && isExcludeIcon)
+        else if (!forceInteraction && !config.BlacklistModePickEnabled && isExcludeIcon)
         {
             // 默认不拾取且没有拾取规则直接放弃OCR
             return;
@@ -385,6 +388,20 @@ public partial class AutoPickTrigger : ITaskTrigger
             // 处理OCR识别结果，清理无效字符并确保引号配对
             text = ProcessOcrText(text);
 
+            var globalDecision = GlobalPickupPolicy.Rules.GetSnapshot().Decide(text);
+            if (globalDecision == GlobalPickupDecision.Deny) return;
+            if (_globalOnly && globalDecision != GlobalPickupDecision.Allow) return;
+            if (forceInteraction)
+            {
+                TryPick(content, text);
+                return;
+            }
+            if (globalDecision == GlobalPickupDecision.Allow && !isExcludeIcon)
+            {
+                TryPick(content, text);
+                return;
+            }
+
             if (DoNotPick(text))
             {
                 return;
@@ -400,8 +417,7 @@ public partial class AutoPickTrigger : ITaskTrigger
             {
                 if (_whitelistModeFinalPickList.Contains(text))
                 {
-                    LogPick(content, text);
-                    InputHub.Foreground.Keyboard.KeyPress(_autoPickAssets.PickVk);
+                    TryPick(content, text);
                 }
 
                 return;
@@ -409,8 +425,7 @@ public partial class AutoPickTrigger : ITaskTrigger
 
             if (config.BlacklistModePickEnabled && _whiteList.Contains(text))
             {
-                LogPick(content, text);
-                InputHub.Foreground.Keyboard.KeyPress(_autoPickAssets.PickVk);
+                TryPick(content, text);
                 return;
             }
 
@@ -437,11 +452,18 @@ public partial class AutoPickTrigger : ITaskTrigger
 
             speedTimer.Record("黑名单判断");
 
-            LogPick(content, text);
-            InputHub.Foreground.Keyboard.KeyPress(_autoPickAssets.PickVk);
+            TryPick(content, text);
         }
 
         speedTimer.DebugPrint();
+    }
+
+    private void TryPick(CaptureContent content, string text)
+    {
+        // OCR 后再检查一次共享名单，所有自动拾取按键均经过同一个最终否决。
+        if (GlobalPickupPolicy.Rules.GetSnapshot(force: true).Decide(text) == GlobalPickupDecision.Deny) return;
+        LogPick(content, text);
+        InputHub.Foreground.Keyboard.KeyPress(_autoPickAssets.PickVk);
     }
 
     private bool DoNotPick(string text)
@@ -551,7 +573,7 @@ public partial class AutoPickTrigger : ITaskTrigger
     /// </summary>
     /// <param name="text">OCR识别的原始文字</param>
     /// <returns>处理后的文字</returns>
-    private static string ProcessOcrText(string text)
+    internal static string ProcessOcrText(string text)
     {
         if (string.IsNullOrEmpty(text))
             return text;

@@ -32,6 +32,7 @@ internal class GameTaskManager
             new TestTrigger(),
             new GameLoadingTrigger(),
             new AutoPick.AutoPickTrigger(),
+            new AutoPick.GlobalPickupTrigger(),
             new QuickTeleport.QuickTeleportTrigger(),
             new AutoSkip.AutoSkipTrigger(),
             new AutoFishing.AutoFishingTrigger(),

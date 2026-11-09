@@ -1,0 +1,25 @@
+diff --git a/main.js b/main.js
+--- a/main.js
++++ b/main.js
+@@ -163,2 +163,5 @@ const revivalMedicineRo = RecognitionObject.TemplateMatch(file.ReadImageMatSync(
+     //通用预处理
++    if (typeof genshin.getGlobalPickupRules !== "function") {
++        throw new Error("全局白/黑名单需要配套主程序，拒绝退回仅锄地有效的名单");
++    }
+     await loadConfig();
+@@ -171,3 +174,4 @@ const revivalMedicineRo = RecognitionObject.TemplateMatch(file.ReadImageMatSync(
+         metadata: JSON.parse(file.readTextSync("point-loot-metadata.json")),
+-        readText: path => file.readTextSync(path), getBlacklist: () => Array.from(blacklistSet)
++        readText: path => file.readTextSync(path), getBlacklist: () => Array.from(blacklistSet),
++        getGlobalRules: force => JSON.parse(genshin.getGlobalPickupRules(!!force))
+     });
+diff --git a/manifest.json b/manifest.json
+--- a/manifest.json
++++ b/manifest.json
+@@ -3,4 +3,4 @@
+   "name": "锄地一条龙",
+-  "version": "2.13.4-local.point-loot.5-food.1",
+-  "description": "一站式解决自动化锄地，支持只拾取狗粮，请仔细阅读README.md后使用；按点拾取本地版，需要配套主程序。全局开关：point-loot-settings.json。",
++  "version": "2.13.4-local.point-loot.5-global.1",
++  "description": "一站式解决自动化锄地，支持只拾取狗粮，请仔细阅读README.md后使用；按点拾取本地版，需要配套主程序。锄地逐点开关：point-loot-settings.json；应用全局名单：User/global-pick-rules.json。",
+   "authors": [

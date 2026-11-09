@@ -1,0 +1,6 @@
+{
+  "masterEnabled": true,
+  "artifactEnabled": true,
+  "materialEnabled": true,
+  "windowMs": 5000
+}

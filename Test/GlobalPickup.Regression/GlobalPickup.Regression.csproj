@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <Compile Include="../../BetterGenshinImpact/GameTask/AutoPick/GlobalPickupRules.cs" Link="Production/GlobalPickupRules.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Input/InputChannelBase.cs" Link="Production/InputChannelBase.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Input/IInputChannel.cs" Link="Production/IInputChannel.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Input/IKeyboardInput.cs" Link="Production/IKeyboardInput.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Input/IMouseInput.cs" Link="Production/IMouseInput.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Input/InputEnums.cs" Link="Production/InputEnums.cs" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,6 @@
 using BetterGenshinImpact.Core.Config;
 using BetterGenshinImpact.Core.Simulator.Extensions;
+using BetterGenshinImpact.GameTask.AutoPick;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -153,6 +154,15 @@ public abstract class InputChannelBase : IInputChannel, IKeyboardInput, IMouseIn
             return this;
         }
 
+        using var pickupLease = GlobalPickupInputGuard.Enter(key);
+        var pickupGuard = GlobalPickupInputGuard.Check(key);
+        if (pickupGuard == GlobalPickupInputGuard.Result.Block) return this;
+        if (pickupGuard == GlobalPickupInputGuard.Result.Pulse)
+        {
+            SetPressed(key, false);
+            OnKeyPress(key);
+            return this;
+        }
         OnKeyDown(key);
         SetPressed(key, true);
         return this;
@@ -179,6 +189,8 @@ public abstract class InputChannelBase : IInputChannel, IKeyboardInput, IMouseIn
             return this;
         }
 
+        using var pickupLease = GlobalPickupInputGuard.Enter(key);
+        if (GlobalPickupInputGuard.Check(key) == GlobalPickupInputGuard.Result.Block) return this;
         SetPressed(key, false);
         OnKeyPress(key);
         return this;

@@ -26,6 +26,13 @@ public class Genshin
     private readonly ILogger<Genshin> _logger = App.GetLogger<Genshin>();
 
     /// <summary>
+    /// 获取不随任务退出或拾取模式切换而清空的全局拾取名单。
+    /// valid=false 时自动拾取必须停止；全局黑名单优先于全局白名单。
+    /// </summary>
+    public string GetGlobalPickupRules(bool force = false) =>
+        BetterGenshinImpact.GameTask.AutoPick.GlobalPickupPolicy.Rules.GetSnapshot(force).ToJson();
+
+    /// <summary>
     /// 游戏宽度
     /// </summary>
     public int Width => captureAreaRect.Width;
