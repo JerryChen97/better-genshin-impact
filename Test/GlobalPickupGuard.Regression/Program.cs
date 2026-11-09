@@ -18,6 +18,7 @@ void Reset(string text = "兽肉")
     Probe.ActionKey = KeyId.F; Probe.Captures = 0; Probe.AfterCapture = null; Probe.AfterKeyDown = null;
     Probe.RouteActive = true; Probe.Suspended = false; Probe.PointToken = "point-token";
     TaskContext.Instance().Config.AutoPickConfig.PickKey = "F";
+    TaskContext.Instance().Config.AutoPickConfig.Mode = AutoPickMode.Blacklist;
     CancellationContext.Instance.Cts.Dispose(); CancellationContext.Instance.Cts = new();
     InputHub.Foreground = new Probe.Channel();
     Rules(); GlobalPickupPolicy.Rules = new GlobalPickupRules(temporaryRoot);
@@ -31,6 +32,11 @@ try
         using var oldFrame = new CaptureContent("兽肉"); picker.OnCapture(oldFrame);
         Check(Probe.InputEvents.Count == (text == "兽肉" ? 2 : 0), "Native fallback binds old approval to live row: " + text);
     }
+    Reset();
+    TaskContext.Instance().Config.AutoPickConfig.Mode = AutoPickMode.Whitelist;
+    Probe.AfterCapture = count => { if (count == 2) Rules(white: "[]"); };
+    using (var oldFrame = new CaptureContent("兽肉")) new AutoPickTrigger().OnCapture(oldFrame);
+    Check(Probe.InputEvents.Count == 0, "Ordinary picker retains global authorization source until final input");
     Reset();
     Probe.AfterCapture = count => { if (count == 2) Rules(white: "[]"); };
     Check(!GlobalPickupInputGuard.TryPickup(User32.VK.VK_F, "兽肉", true) && Probe.InputEvents.Count == 0,

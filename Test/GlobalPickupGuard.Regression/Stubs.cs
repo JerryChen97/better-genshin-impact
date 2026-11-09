@@ -99,7 +99,7 @@ namespace BetterGenshinImpact.GameTask.AutoPick
     public sealed class AutoPickConfig
     {
         public bool Enabled => false;
-        public AutoPickMode Mode => AutoPickMode.Blacklist;
+        public AutoPickMode Mode { get; set; } = AutoPickMode.Blacklist;
         public bool BlacklistModePickEnabled => false;
         public bool WhitelistModeDoNotPickEnabled => false;
         public string PickKey { get; set; } = "F";

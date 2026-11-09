@@ -398,7 +398,7 @@ public partial class AutoPickTrigger : ITaskTrigger
             }
             if (globalDecision == GlobalPickupDecision.Allow && !isExcludeIcon)
             {
-                TryPick(content, text);
+                TryPick(content, text, requireGlobalWhitelist: true);
                 return;
             }
 
@@ -458,11 +458,11 @@ public partial class AutoPickTrigger : ITaskTrigger
         speedTimer.DebugPrint();
     }
 
-    private void TryPick(CaptureContent content, string text)
+    private void TryPick(CaptureContent content, string text, bool requireGlobalWhitelist = false)
     {
         // OCR 后再检查一次共享名单，所有自动拾取按键均经过同一个最终否决。
         if (GlobalPickupPolicy.Rules.GetSnapshot(force: true).Decide(text) == GlobalPickupDecision.Deny) return;
-        if (GlobalPickupInputGuard.TryPickup(_autoPickAssets.PickVk, text, _globalOnly)) LogPick(content, text);
+        if (GlobalPickupInputGuard.TryPickup(_autoPickAssets.PickVk, text, _globalOnly || requireGlobalWhitelist)) LogPick(content, text);
     }
 
     private bool DoNotPick(string text)
