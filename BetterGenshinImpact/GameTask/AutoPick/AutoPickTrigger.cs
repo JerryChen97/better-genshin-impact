@@ -462,8 +462,7 @@ public partial class AutoPickTrigger : ITaskTrigger
     {
         // OCR 后再检查一次共享名单，所有自动拾取按键均经过同一个最终否决。
         if (GlobalPickupPolicy.Rules.GetSnapshot(force: true).Decide(text) == GlobalPickupDecision.Deny) return;
-        LogPick(content, text);
-        InputHub.Foreground.Keyboard.KeyPress(_autoPickAssets.PickVk);
+        if (GlobalPickupInputGuard.TryPickup(_autoPickAssets.PickVk, text, _globalOnly)) LogPick(content, text);
     }
 
     private bool DoNotPick(string text)

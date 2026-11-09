@@ -2,7 +2,7 @@
     "use strict";
     // Inputs are injected to allow race/cleanup verification without game input.
     async function run(deps) {
-        const { runtime, running, sleep, findItem, pressF, scroll, remember } = deps;
+        const { runtime, running, sleep, findItem, scroll, remember } = deps;
         let lastToken = null, lastName = null, lastPress = -Infinity, tokenObservedAt = 0;
         // Use the first half of each observed window to scan down, then scan up.
         // Only the host ends the window; a missed template does not prove empty.
@@ -22,20 +22,24 @@
                 if (item === "镇压沙暴" && runtime.mandatoryAllowed(item)) {
                     // Re-read blacklist immediately before the mandatory input.
                     if (now() - lastPress >= 250 && runtime.mandatoryAllowed(item)) {
-                        pressF(); lastPress = now(); lastName = item;
+                        if (runtime.tryPickup(item, "mandatory", null)) { lastPress = now(); lastName = item; }
                     }
                 } else if (item && global && runtime.permitsGlobal(global.token, item)) {
                     if (lastName !== item || now() - lastPress >= 160) {
                         // Revalidate the global blacklist and route token after capture.
                         if (runtime.permitsGlobal(global.token, item)) {
-                            pressF(); remember(item); lastName = item; lastPress = now();
+                            if (runtime.tryPickup(item, "global", global.token)) {
+                                remember(item); lastName = item; lastPress = now();
+                            }
                         }
                     }
                 } else if (item && context && runtime.permits(context.token, item)) {
                     if (lastName !== item || now() - lastPress >= 160) {
                         // No await between this final token/deny check and input.
                         if (runtime.permits(context.token, item)) {
-                            pressF(); remember(item); lastName = item; lastPress = now();
+                            if (runtime.tryPickup(item, "point", context.token)) {
+                                remember(item); lastName = item; lastPress = now();
+                            }
                         }
                     }
                 }

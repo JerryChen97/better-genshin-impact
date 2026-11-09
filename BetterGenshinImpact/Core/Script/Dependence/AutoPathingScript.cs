@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace BetterGenshinImpact.Core.Script.Dependence;
 
-public class AutoPathingScript
+public partial class AutoPathingScript
 {
     private object? _config = null;
     private string _rootPath;
@@ -23,6 +23,7 @@ public class AutoPathingScript
     private bool _running;
     private bool _pointLootEnabled = true;
     private PointLootSession? _pointLootSession;
+    private string? _pointLootRouteSha256;
 
     public AutoPathingScript(string rootPath, object? config)
     {
@@ -90,6 +91,7 @@ public class AutoPathingScript
             {
                 session.SetEnabled(_pointLootEnabled);
                 _pointLootSession = session;
+                _pointLootRouteSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(routeJson))).ToLowerInvariant();
             }
             var ct = CancellationContext.Instance.Cts.Token;
             using var registration = ct.Register(session.Revoke);
@@ -182,6 +184,7 @@ public class AutoPathingScript
         lock (_runGate)
         {
             _pointLootSession = null;
+            _pointLootRouteSha256 = null;
             _running = false;
         }
     }

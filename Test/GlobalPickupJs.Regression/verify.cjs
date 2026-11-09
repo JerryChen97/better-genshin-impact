@@ -29,9 +29,14 @@ async function test(name, action) {
 }
 function fixture() {
   const state = { settings: plain(config), rules: plain(global), blacklist: [], time: 0, active: true,
-    f: [], scroll: [], remembered: [], enabled: [], context: null, completion: null, forcedReads: 0 };
+    f: [], scroll: [], remembered: [], enabled: [], context: null, completion: null, forcedReads: 0, inputAccepted: true, inputCalls: [] };
   const host = { setPointLootEnabled: flag => state.enabled.push(flag), completePointLootWindow() {},
     getPointLootContext: () => JSON.stringify(state.context),
+    tryPickup(name, source, token, artifactPrefix) {
+      state.inputCalls.push({ name, source, token, artifactPrefix });
+      if (state.inputAccepted) state.f.push(name);
+      return state.inputAccepted;
+    },
     runWithLootPolicyResult() { return new Promise((resolve, reject) => { state.completion = { resolve, reject }; }); } };
   const deps = { host, policy, catalog, metadata: { schema: 1, routes: [route] },
     readText: file => file === 'point-loot-settings.json' ? JSON.stringify(state.settings) : raw,
@@ -69,6 +74,21 @@ function fixture() {
     assert(!policy.decideGlobal(rules, catalog, []).allowedItemIds.includes('兽肉'));
   });
   await test('account denial is retained', () => assert(!policy.decideGlobal(global, catalog, ['禽肉']).allowedItemIds.includes('禽肉')));
+  await test('artifact family and material aliases have explicit native input targets', () => {
+    assert.deepEqual(plain(policy.pickupTarget(catalog, '教官')), { name: '教官', artifactPrefix: true });
+    assert.deepEqual(plain(policy.pickupTarget(catalog, '幽雾片甲(1)')), { name: '幽雾片甲', artifactPrefix: false });
+    assert.deepEqual(plain(policy.pickupTarget(catalog, '兽肉')), { name: '兽肉', artifactPrefix: false });
+  });
+  await test('native selected-row rejection suppresses input history', async () => {
+    const f = fixture(); f.state.inputAccepted = false; f.start(); await f.pick('兽肉');
+    assert.deepEqual(f.state.f, []); assert.deepEqual(f.state.remembered, []);
+    assert.deepEqual(f.state.inputCalls, [{ name: '兽肉', source: 'global', token: route.textSha256, artifactPrefix: false }]); await f.end();
+  });
+  await test('point pickup carries native window token and exact approved material', async () => {
+    const f = fixture(); f.start(); f.state.context = { phase: 'postBattle', token: 'point-live', pointIndex: 0 };
+    await f.pick('不祥的面具');
+    assert.deepEqual(f.state.inputCalls, [{ name: '不祥的面具', source: 'point', token: 'point-live', artifactPrefix: false }]); await f.end();
+  });
   for (const item of ['兽肉', '禽肉', '教官']) await test('master/category OFF retains global ' + item, async () => {
     const f = fixture(); Object.assign(f.state.settings, { masterEnabled: false, artifactEnabled: false, materialEnabled: false });
     f.start(); assert.equal(f.runtime.context(), null); await f.pick(item);

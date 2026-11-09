@@ -189,6 +189,12 @@
         return Array.from(denied);
     }
 
+    function pickupTarget(catalog, templateName) {
+        const indexed = indexCatalog(catalog), id = indexed.byAlias.get(templateName), item = indexed.byId.get(id);
+        if (!item) return { name: templateName, artifactPrefix: false };
+        return { name: item.id, artifactPrefix: item.category === "artifact" };
+    }
+
     // Global user rules are independent of hoeing switches and point evidence.
     function decideGlobal(rules, catalog, accountBlacklist) {
         const denied = globalBlacklist(rules, catalog).concat(accountBlacklist);
@@ -223,5 +229,5 @@
 
     return Object.freeze({ validateSettings: validateSettings, decidePoint: decidePoint,
         decideRetained: decideRetained, validateGlobalRules: validateGlobalRules,
-        globalBlacklist: globalBlacklist, decideGlobal: decideGlobal, compileRoute: compileRoute });
+        globalBlacklist: globalBlacklist, decideGlobal: decideGlobal, pickupTarget: pickupTarget, compileRoute: compileRoute });
 })()

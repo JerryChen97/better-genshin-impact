@@ -23,7 +23,7 @@
             return Array.from(new Set(getBlacklist().concat(policy.globalBlacklist(globalRules(force), catalog))));
         }
         globalRules(true);
-        for (const name of ["runWithLootPolicyResult", "getPointLootContext", "completePointLootWindow", "setPointLootEnabled"]) {
+        for (const name of ["runWithLootPolicyResult", "getPointLootContext", "completePointLootWindow", "setPointLootEnabled", "tryPickup"]) {
             if (typeof host[name] !== "function") throw new Error("当前 BetterGI 缺少按点拾取接口；需要候选主程序，不能使用旧版整路线拾取代替。");
         }
         if (metadata.schema !== 1 || catalog.schema !== 1) throw new Error("Unsupported point loot metadata schema");
@@ -80,6 +80,14 @@
             const value = context();
             return !!value && value.token === token && value.decision.allowedItemIds.length > 0;
         }
+        function tryPickup(itemName, source, token) {
+            if (source === "global" ? !permitsGlobal(token, itemName) :
+                source === "point" ? !permits(token, itemName) :
+                source !== "mandatory" || !mandatoryAllowed(itemName)) return false;
+            if (!current || suspended) return false;
+            const target = policy.pickupTarget(catalog, itemName);
+            return host.tryPickup(target.name, source, source === "point" ? token : current.route.textSha256, target.artifactPrefix);
+        }
         async function run(routePath) {
             if (current) throw new Error("A point loot route is already active");
             const raw = readText(routePath).replace(/^\uFEFF/, ""), key = relativePath(routePath), route = routes.get(key);
@@ -125,7 +133,7 @@
                 && !(settings.deniedItemIds || []).includes(itemName);
         }
         return Object.freeze({ run: run, context: context, permits: permits, permitsScroll: permitsScroll,
-            globalContext: globalContext, permitsGlobal: permitsGlobal,
+            globalContext: globalContext, permitsGlobal: permitsGlobal, tryPickup: tryPickup,
             complete: complete, suspend: suspend, mandatoryAllowed: mandatoryAllowed });
     }
     return Object.freeze({ create: create, fingerprint: fingerprint, relativePath: relativePath });

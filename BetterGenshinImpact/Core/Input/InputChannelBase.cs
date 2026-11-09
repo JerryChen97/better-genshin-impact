@@ -148,15 +148,14 @@ public abstract class InputChannelBase : IInputChannel, IKeyboardInput, IMouseIn
 
     public IKeyboardInput KeyDown(User32.VK key)
     {
-        if (TryGetMouseButton(key, out var button))
-        {
-            ButtonDown(button);
-            return this;
-        }
-
         using var pickupLease = GlobalPickupInputGuard.Enter(key);
         var pickupGuard = GlobalPickupInputGuard.Check(key);
         if (pickupGuard == GlobalPickupInputGuard.Result.Block) return this;
+        if (TryGetMouseButton(key, out var button))
+        {
+            ButtonDown(button, pickupGuard);
+            return this;
+        }
         if (pickupGuard == GlobalPickupInputGuard.Result.Pulse)
         {
             SetPressed(key, false);
@@ -183,14 +182,14 @@ public abstract class InputChannelBase : IInputChannel, IKeyboardInput, IMouseIn
 
     public IKeyboardInput KeyPress(User32.VK key)
     {
+        using var pickupLease = GlobalPickupInputGuard.Enter(key);
+        var pickupGuard = GlobalPickupInputGuard.Check(key);
+        if (pickupGuard == GlobalPickupInputGuard.Result.Block) return this;
         if (TryGetMouseButton(key, out var button))
         {
-            ButtonClick(button);
+            ButtonClick(button, pickupGuard);
             return this;
         }
-
-        using var pickupLease = GlobalPickupInputGuard.Enter(key);
-        if (GlobalPickupInputGuard.Check(key) == GlobalPickupInputGuard.Result.Block) return this;
         SetPressed(key, false);
         OnKeyPress(key);
         return this;
@@ -339,8 +338,17 @@ public abstract class InputChannelBase : IInputChannel, IKeyboardInput, IMouseIn
         }
     }
 
-    private InputChannelBase ButtonDown(InputMouseButton button)
+    private InputChannelBase ButtonDown(InputMouseButton button, GlobalPickupInputGuard.Result? checkedResult = null)
     {
+        using var pickupLease = GlobalPickupInputGuard.Enter(ToVirtualKey(button));
+        var guard = checkedResult ?? GlobalPickupInputGuard.Check(ToVirtualKey(button));
+        if (guard == GlobalPickupInputGuard.Result.Block) return this;
+        if (guard == GlobalPickupInputGuard.Result.Pulse)
+        {
+            SetPressed(ToVirtualKey(button), false);
+            OnMouseClick(button);
+            return this;
+        }
         OnMouseButton(button, true);
         SetPressed(ToVirtualKey(button), true);
         return this;
@@ -353,8 +361,10 @@ public abstract class InputChannelBase : IInputChannel, IKeyboardInput, IMouseIn
         return this;
     }
 
-    private InputChannelBase ButtonClick(InputMouseButton button)
+    private InputChannelBase ButtonClick(InputMouseButton button, GlobalPickupInputGuard.Result? checkedResult = null)
     {
+        using var pickupLease = GlobalPickupInputGuard.Enter(ToVirtualKey(button));
+        if ((checkedResult ?? GlobalPickupInputGuard.Check(ToVirtualKey(button))) == GlobalPickupInputGuard.Result.Block) return this;
         SetPressed(ToVirtualKey(button), false);
         OnMouseClick(button);
         return this;
