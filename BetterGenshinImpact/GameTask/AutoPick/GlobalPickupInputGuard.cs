@@ -76,7 +76,7 @@ public static class GlobalPickupInputGuard
     public static Result Check(User32.VK key)
     {
         var context = TaskContext.Instance();
-        if (!IsPickupKey(key)) return Result.Pass;
+        if (!IsPickupKey(key)) return _request is null ? Result.Pass : Result.Block;
         var config = context.Config.AutoPickConfig;
         try
         {
@@ -102,6 +102,7 @@ public static class GlobalPickupInputGuard
             if (string.IsNullOrWhiteSpace(text)) return Result.Block;
             var rules = GlobalPickupPolicy.Rules.GetSnapshot(force: true);
             if (rules.Decide(text) == GlobalPickupDecision.Deny) return Result.Block;
+            if (!TaskContext.Instance().IsInitialized || RunnerContext.Instance.IsSuspend) return Result.Block;
             var request = _request;
             if (request is not null)
             {

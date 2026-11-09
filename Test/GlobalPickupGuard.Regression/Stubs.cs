@@ -85,7 +85,7 @@ namespace BetterGenshinImpact.GameTask
     {
         private static readonly TaskContext Current = new();
         public static TaskContext Instance() => Current;
-        public bool IsInitialized => true;
+        public bool IsInitialized { get; set; } = true;
         public ConfigData Config { get; } = new();
         public Info SystemInfo { get; } = new();
         public sealed class ConfigData { public AutoPickConfig AutoPickConfig { get; } = new(); }

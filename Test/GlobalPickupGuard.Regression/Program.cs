@@ -18,6 +18,7 @@ void Reset(string text = "兽肉")
     Probe.ActionKey = KeyId.F; Probe.Captures = 0; Probe.AfterCapture = null; Probe.AfterKeyDown = null;
     Probe.RouteActive = true; Probe.Suspended = false; Probe.PointToken = "point-token";
     TaskContext.Instance().Config.AutoPickConfig.PickKey = "F";
+    TaskContext.Instance().IsInitialized = true;
     TaskContext.Instance().Config.AutoPickConfig.Mode = AutoPickMode.Blacklist;
     CancellationContext.Instance.Cts.Dispose(); CancellationContext.Instance.Cts = new();
     InputHub.Foreground = new Probe.Channel();
@@ -77,6 +78,15 @@ try
     Reset("教官的胸花"); Rules(black: "[\"教官的胸花\"]");
     Check(!GlobalPickupInputGuard.TryPickup(User32.VK.VK_F, "教官", true, true), "Exact denied piece vetoes artifact family");
     Reset("兽肉干"); Check(!GlobalPickupInputGuard.TryPickup(User32.VK.VK_F, "兽肉", true), "Food target remains exact");
+    Reset();
+    Check(!GlobalPickupInputGuard.TryPickup(User32.VK.VK_W, "兽肉", true, stillPermitted: () => false) && Probe.InputEvents.Count == 0,
+        "Explicit pickup request never sends unrelated key before returning false");
+    Reset(); TaskContext.Instance().IsInitialized = false;
+    Check(!GlobalPickupInputGuard.TryPickup(User32.VK.VK_F, "兽肉", true) && Probe.InputEvents.Count == 0,
+        "Stopped runtime rejects expected pickup without sending key");
+    Reset(); Probe.AfterCapture = count => { if (count == 2) Probe.Suspended = true; };
+    using (var oldFrame = new CaptureContent("兽肉")) new AutoPickTrigger(globalOnly: true).OnCapture(oldFrame);
+    Check(Probe.InputEvents.Count == 0, "Native fallback rechecks user pause at final input");
     foreach (var change in new[] { "window", "route", "cancel", "pause" })
     {
         Reset("不祥的面具"); var api = new AutoPathingScript();
