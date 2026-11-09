@@ -30,7 +30,9 @@ async function test(name, action) {
 function fixture() {
   const state = { settings: plain(config), rules: plain(global), blacklist: [], time: 0, active: true,
     f: [], scroll: [], remembered: [], enabled: [], context: null, completion: null, forcedReads: 0, inputAccepted: true, inputCalls: [] };
-  const host = { setPointLootEnabled: flag => state.enabled.push(flag), completePointLootWindow() {},
+  const host = { getPointLootCapabilities: () => JSON.stringify({ schema: 1, routeTeleportTimeoutMs: 60000, statueTeleportTimeoutMs: 120000,
+            routeLocalFailureCodes: ['position-unrecognized', 'target-too-far', 'route-stuck', 'revive-retry-exhausted', 'teleport-failed', 'teleport-timeout'] }),
+    setPointLootEnabled: flag => state.enabled.push(flag), completePointLootWindow() {},
     getPointLootContext: () => JSON.stringify(state.context),
     tryPickup(name, source, token, artifactPrefix) {
       state.inputCalls.push({ name, source, token, artifactPrefix });
@@ -60,6 +62,14 @@ function fixture() {
   };
 }
 (async () => {
+  await test('old native without safe-continuation negotiation fails before route work', () => {
+    const f = fixture(); delete f.deps.host.getPointLootCapabilities;
+    assert.throws(() => runtimeModule.create(f.deps), /缺少安全续组协议/);
+  });
+  await test('incompatible negotiated budget fails before route work', () => {
+    const f = fixture(); f.deps.host.getPointLootCapabilities = () => JSON.stringify({ schema: 1, routeTeleportTimeoutMs: 120000 });
+    assert.throws(() => runtimeModule.create(f.deps), /不兼容/);
+  });
   await test('application whitelist has no dependency on hoeing point evidence', () => {
     const decision = policy.decideGlobal(global, catalog, []);
     assert.deepEqual(plain(decision.allowedItemIds).sort(), ['兽肉', '禽肉', '教官'].sort());

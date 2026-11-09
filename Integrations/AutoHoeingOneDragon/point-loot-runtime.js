@@ -26,6 +26,12 @@
         for (const name of ["runWithLootPolicyResult", "getPointLootContext", "completePointLootWindow", "setPointLootEnabled", "tryPickup"]) {
             if (typeof host[name] !== "function") throw new Error("当前 BetterGI 缺少按点拾取接口；需要候选主程序，不能使用旧版整路线拾取代替。");
         }
+        if (typeof host.getPointLootCapabilities !== "function") throw new Error("当前 BetterGI 缺少安全续组协议；需要配套 .6 主程序");
+        const capabilities = JSON.parse(host.getPointLootCapabilities());
+        if (!capabilities || capabilities.schema !== 1 || capabilities.routeTeleportTimeoutMs !== 60000 ||
+            capabilities.statueTeleportTimeoutMs !== 120000 || !Array.isArray(capabilities.routeLocalFailureCodes) ||
+            !["teleport-failed", "teleport-timeout"].every(code => capabilities.routeLocalFailureCodes.includes(code)))
+            throw new Error("不兼容的安全续组协议，拒绝执行路线");
         if (metadata.schema !== 1 || catalog.schema !== 1) throw new Error("Unsupported point loot metadata schema");
         const routes = new Map();
         for (const route of metadata.routes) {
@@ -109,7 +115,7 @@
                     Object.keys(result).length !== fields.length || !fields.every(name => Object.prototype.hasOwnProperty.call(result, name)) ||
                     result.schema !== 1 || typeof result.success !== "boolean" || result.routeSha256 !== route.textSha256 ||
                     typeof result.message !== "string" ||
-                    (result.success ? !["completed", "completed-with-skips"].includes(result.code) : !["position-unrecognized", "target-too-far", "route-stuck", "revive-retry-exhausted"].includes(result.code))) {
+                    (result.success ? !["completed", "completed-with-skips"].includes(result.code) : !["position-unrecognized", "target-too-far", "route-stuck", "revive-retry-exhausted", "teleport-failed", "teleport-timeout"].includes(result.code))) {
                     throw new Error("Invalid or mismatched point loot route result");
                 }
                 return { success: result.success, code: result.code, message: result.message };

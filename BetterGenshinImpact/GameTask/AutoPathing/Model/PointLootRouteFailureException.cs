@@ -10,7 +10,9 @@ internal enum PointLootRouteFailureReason
     PositionUnrecognized,
     TargetTooFar,
     RouteStuck,
-    ReviveRetryExhausted
+    ReviveRetryExhausted,
+    TeleportFailed,
+    TeleportTimeout
 }
 
 /// <summary>
@@ -32,6 +34,8 @@ internal sealed class PointLootRouteFailureException : Exception
         PointLootRouteFailureReason.TargetTooFar => "target-too-far",
         PointLootRouteFailureReason.RouteStuck => "route-stuck",
         PointLootRouteFailureReason.ReviveRetryExhausted => "revive-retry-exhausted",
+        PointLootRouteFailureReason.TeleportFailed => "teleport-failed",
+        PointLootRouteFailureReason.TeleportTimeout => "teleport-timeout",
         _ => throw new ArgumentOutOfRangeException(nameof(reason))
     };
 
@@ -42,6 +46,8 @@ internal sealed class PointLootRouteFailureException : Exception
         "target-too-far" => PointLootRouteFailureReason.TargetTooFar,
         "route-stuck" => PointLootRouteFailureReason.RouteStuck,
         "revive-retry-exhausted" => PointLootRouteFailureReason.ReviveRetryExhausted,
+        "teleport-failed" => PointLootRouteFailureReason.TeleportFailed,
+        "teleport-timeout" => PointLootRouteFailureReason.TeleportTimeout,
         _ => throw new ArgumentOutOfRangeException(nameof(code))
     };
 }

@@ -37,11 +37,30 @@ namespace BetterGenshinImpact.GameTask.Common
         public static Task SimulateHoldElementalSkillAsync(int ms, CancellationToken ct) { ct.ThrowIfCancellationRequested(); HoldCalls++; return Task.CompletedTask; }
         public static Task SimulateMouseLeftClickLoopAsync(int count, CancellationToken ct) { ct.ThrowIfCancellationRequested(); PlungeCalls++; return Task.CompletedTask; }
     }
-    public sealed class Capture : IDisposable { public void Dispose() { } }
+    public sealed class Capture : BetterGenshinImpact.GameTask.Model.Area.ImageRegion { }
     public sealed class CancellationContext
     {
         public static CancellationContext Instance { get; } = new();
         public CancellationTokenSource Cts { get; set; } = new();
+    }
+}
+namespace BetterGenshinImpact.Core.Recognition
+{
+    public sealed class RecognitionObject { }
+}
+namespace BetterGenshinImpact.GameTask.Model.Area
+{
+    public class ImageRegion : IDisposable
+    {
+        public static bool MapButtonExists = true;
+        public FoundRegion Find(BetterGenshinImpact.Core.Recognition.RecognitionObject recognition) => new();
+        public void Dispose() { }
+    }
+    public sealed class FoundRegion : IDisposable
+    {
+        public bool IsExist() => ImageRegion.MapButtonExists;
+        public bool IsEmpty() => !IsExist();
+        public void Dispose() { }
     }
 }
 namespace BetterGenshinImpact.Core.Script.Dependence
@@ -139,7 +158,23 @@ namespace BetterGenshinImpact.GameTask.AutoFight.Model
 }
 namespace BetterGenshinImpact.Core.Input
 {
-    public static class InputHub { public static int ReleaseCalls; public static void ReleaseAll() { ReleaseCalls++; } }
+    public static class InputHub
+    {
+        public static int ReleaseCalls;
+        public static void ReleaseAll() { ReleaseCalls++; }
+        public static FakeForeground Foreground { get; } = new();
+    }
+    public sealed class FakeForeground { public FakeKeyboard Keyboard { get; } = new(); }
+    public sealed class FakeKeyboard
+    {
+        public List<Vanara.PInvoke.User32.VK> Presses { get; } = new();
+        public Action? BeforePress;
+        public void KeyPress(Vanara.PInvoke.User32.VK key) { BeforePress?.Invoke(); Presses.Add(key); }
+    }
+}
+namespace Vanara.PInvoke
+{
+    public static class User32 { public enum VK { VK_ESCAPE } }
 }
 namespace BetterGenshinImpact.GameTask.Common.BgiVision
 {
@@ -147,6 +182,9 @@ namespace BetterGenshinImpact.GameTask.Common.BgiVision
     {
         public static bool MainUi = true;
         public static bool RevivePrompt;
+        public static bool BigMapUi;
+        public static Func<bool>? OnMapRead;
+        public static bool IsInBigMapUi(object capture) => OnMapRead?.Invoke() ?? BigMapUi;
         public static Queue<bool> MainUiFrames { get; } = new();
         public static int MainUiReads;
         public static Action<int>? OnRead;
@@ -183,6 +221,7 @@ namespace BetterGenshinImpact.GameTask.AutoPathing
         public BetterGenshinImpact.Core.Config.PathingPartyConfig? PartyConfig { get; set; }
         public bool SuccessEnd;
         internal bool PointSkipEnabled { get; set; }
+        internal PointLootTeleportRecovery? TeleportRecovery { get; set; }
         public readonly HashSet<int> Completed = new();
         public readonly List<(int OriginalIndex, string Code)> Skipped = new();
         internal IReadOnlyCollection<int> CompletedFightPoints => Completed;

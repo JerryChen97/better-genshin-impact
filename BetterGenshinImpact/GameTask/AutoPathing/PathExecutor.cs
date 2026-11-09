@@ -54,6 +54,7 @@ public partial class PathExecutor
     private CancellationToken ct;
     private PathExecutorSuspend pathExecutorSuspend;
     internal PointLootSession? PointLootSession { get; set; }
+    internal PointLootTeleportRecovery? TeleportRecovery { get; set; }
 
     internal void ClearPointLootRun()
     {
@@ -908,7 +909,11 @@ public partial class PathExecutor
         var forceTp = waypoint.Action == ActionEnum.ForceTp.Code;
         TpTask tpTask = new TpTask(ct);
         await TryGetExpeditionRewardsDispatch(tpTask);
-        var (tpX, tpY) = await tpTask.Tp(waypoint.GameX, waypoint.GameY, waypoint.MapName, forceTp);
+        var (tpX, tpY) = TeleportRecovery is { } recovery
+            ? await recovery.RunAsync(
+                () => tpTask.TpForPointPolicy(waypoint.GameX, waypoint.GameY, waypoint.MapName, forceTp),
+                failure => PointLootMainUi.RestoreAfterRouteTeleportFailureAsync(failure, ct), ct)
+            : await tpTask.Tp(waypoint.GameX, waypoint.GameY, waypoint.MapName, forceTp);
         var (tprX, tprY) = MapManager.GetMap(waypoint.MapName, waypoint.MapMatchMethod)
             .ConvertGenshinMapCoordinatesToImageCoordinates(new Point2f((float)tpX, (float)tpY));
         Navigation.SetPrevPosition(tprX, tprY); // 通过上一个位置直接进行局部特征匹配

@@ -1,29 +1,32 @@
-diff --git a/main.js b/main.js
 --- a/main.js
 +++ b/main.js
-@@ -163,2 +163,5 @@ const revivalMedicineRo = RecognitionObject.TemplateMatch(file.ReadImageMatSync(
+@@ -163,2 +163,5 @@
      //通用预处理
 +    if (typeof genshin.getGlobalPickupRules !== "function") {
 +        throw new Error("全局白/黑名单需要配套主程序，拒绝退回仅锄地有效的名单");
 +    }
      await loadConfig();
-@@ -171,3 +174,4 @@ const revivalMedicineRo = RecognitionObject.TemplateMatch(file.ReadImageMatSync(
+@@ -171,3 +174,4 @@
          metadata: JSON.parse(file.readTextSync("point-loot-metadata.json")),
 -        readText: path => file.readTextSync(path), getBlacklist: () => Array.from(blacklistSet)
 +        readText: path => file.readTextSync(path), getBlacklist: () => Array.from(blacklistSet),
 +        getGlobalRules: force => JSON.parse(genshin.getGlobalPickupRules(!!force))
      });
-@@ -1452,3 +1456,2 @@ async function recognizeAndInteract() {
+@@ -1452,3 +1456,2 @@
          runtime: pointLoot, running: () => state.running, sleep: sleep,
 -        pressF: () => keyPress("F"),
          scroll: up => verticalScroll(up ? 1 : -1),
-diff --git a/manifest.json b/manifest.json
+@@ -1918,3 +1921,3 @@
+                 typeof pathRes.success !== "boolean" || typeof pathRes.message !== "string" ||
+-                (pathRes.success ? !["completed", "completed-with-skips"].includes(pathRes.code) : !["position-unrecognized", "target-too-far", "route-stuck", "revive-retry-exhausted"].includes(pathRes.code))) {
++                (pathRes.success ? !["completed", "completed-with-skips"].includes(pathRes.code) : !["position-unrecognized", "target-too-far", "route-stuck", "revive-retry-exhausted", "teleport-failed", "teleport-timeout"].includes(pathRes.code))) {
+                 throw new Error("逐点路线未返回可信的执行结果，停止配置组且不记录完成");
 --- a/manifest.json
 +++ b/manifest.json
 @@ -3,4 +3,4 @@
    "name": "锄地一条龙",
 -  "version": "2.13.4-local.point-loot.5-food.1",
 -  "description": "一站式解决自动化锄地，支持只拾取狗粮，请仔细阅读README.md后使用；按点拾取本地版，需要配套主程序。全局开关：point-loot-settings.json。",
-+  "version": "2.13.4-local.point-loot.5-global.2",
++  "version": "2.13.4-local.point-loot.6-global.2",
 +  "description": "一站式解决自动化锄地，支持只拾取狗粮，请仔细阅读README.md后使用；按点拾取本地版，需要配套主程序。锄地逐点开关：point-loot-settings.json；应用全局名单：User/global-pick-rules.json。",
    "authors": [

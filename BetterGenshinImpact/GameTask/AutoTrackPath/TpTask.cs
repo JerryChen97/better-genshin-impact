@@ -37,7 +37,7 @@ namespace BetterGenshinImpact.GameTask.AutoTrackPath;
 /// <summary>
 /// 传送任务
 /// </summary>
-public class TpTask
+public partial class TpTask
 {
     private readonly QuickTeleportAssets _assets;
     private readonly Rect _captureRect = TaskContext.Instance().SystemInfo.ScaleMax1080PCaptureRect;
@@ -84,10 +84,10 @@ public class TpTask
     private const int TeleportClickableAreaRetryCount = 5;
     private const int TeleportClickableAreaRetryDelayMs = 80;
     private const int BigMapRectRetryIntervalMs = 150;
-    private const int TeleportTimeoutMs = 60_000;
+    private const int TeleportTimeoutMs = TeleportBudget.RouteTimeoutMs;
     // 所有经 TpToStatueOfTheSeven 的七天神像传送（被击败复活、低血量回血、换队等）通常约 7 秒；
     // 偶发的整体变慢不应在 60 秒时就被当作失败。路线传送仍为 TeleportTimeoutMs。
-    private const int StatueTeleportTimeoutMs = 120_000;
+    private const int StatueTeleportTimeoutMs = TeleportBudget.StatueTimeoutMs;
     // 等待传送完成由所在 TeleportBudget 的预算限定。次数上限只作保险（每次至少间隔 100 ms，即不少于最长预算的两倍），
     // 避免在预算到点前静默按成功返回：120 秒预算下原来的 600 次（约 60 秒）会先到。
     private const int TeleportCompletionMaxChecks = StatueTeleportTimeoutMs / 50;
@@ -161,10 +161,6 @@ public class TpTask
         OutsideClickableArea,
         InsufficientPrecision,
         NeighborSafetyDistance,
-    }
-
-    private sealed class TeleportPanelNotOpenedException(string message) : TpPointNotActivate(message)
-    {
     }
 
     private sealed class TeleportTargetContext
@@ -599,7 +595,7 @@ public class TpTask
                     lastEvaluation?.RequiredVisibleRadius ?? 0,
                     lastEvaluation?.ZoomLevel ?? GetCurrentBigMapZoomLevel(),
                     lastEvaluation?.FailureReason ?? "未知");
-                throw new Exception("目标传送点位于不可点击区域，传送失败");
+                throw new TeleportFailureException("目标传送点位于不可点击区域，传送失败");
             }
 
             if (!moveZoomAdjusted)
@@ -615,7 +611,7 @@ public class TpTask
             await Delay(TeleportClickableAreaRetryDelayMs, ct);
         }
 
-        throw new Exception("目标传送点位于不可点击区域，传送失败");
+        throw new TeleportFailureException("目标传送点位于不可点击区域，传送失败");
     }
 
     private TeleportClickViewEvaluation EvaluateTeleportClickView(
@@ -630,7 +626,7 @@ public class TpTask
         {
             bigMapInAllMapRect = GetBigMapRect(mapName);
         }
-        catch
+        catch (Exception error) when (!_classifyTeleportFailure || IsKnownTeleportFailure(error))
         {
             return new TeleportClickViewEvaluation
             {
@@ -1131,7 +1127,7 @@ public class TpTask
 
             return true;
         }
-        catch (Exception)
+        catch (Exception error) when (!_classifyTeleportFailure || IsKnownTeleportFailure(error))
         {
             return false;
         }
@@ -1214,54 +1210,17 @@ public class TpTask
     public Task<(double, double)> Tp(double tpX, double tpY, string mapName = "Teyvat", bool force = false) =>
         TpWithTimeout(tpX, tpY, mapName, force, TeleportTimeoutMs);
 
+    // Same 60-second budget and existing retry limit; only known operation failures receive a local classification.
+    internal Task<(double, double)> TpForPointPolicy(double tpX, double tpY, string mapName, bool force) =>
+        TpWithTimeout(tpX, tpY, mapName, force, TeleportTimeoutMs, classifyFailure: true);
+
     /// <summary>
     /// 自身预算到点（调用方令牌未取消）时统一抛出 <see cref="TeleportTimeoutException"/>，
     /// 无论内部表现为 OperationCanceledException 还是 TaskControl.Delay 的 NormalEndException。
     /// </summary>
-    private Task<(double, double)> TpWithTimeout(double tpX, double tpY, string mapName, bool force, int timeoutMs) =>
-        TeleportBudget.RunAsync(token => new TpTask(token).TpWithRetries(tpX, tpY, mapName, force), timeoutMs, ct);
-
-    private async Task<(double, double)> TpWithRetries(double tpX, double tpY, string mapName, bool force)
-    {
-        for (var i = 0; i < 3; i++)
-        {
-            try
-            {
-                return await TpOnce(tpX, tpY, mapName, force);
-            }
-            catch (TeleportPanelNotOpenedException e)
-            {
-                // 同一视野内点击后未出现面板，重试只会重复点击同一位置。
-                
-                // 抛出异常按下 ESC 退出大地图，避免影响后续路径追踪任务
-                InputHub.Foreground.Keyboard.KeyPress(User32.VK.VK_ESCAPE);
-                await Delay(300, ct);
-                
-                throw;
-            }
-            catch (TpPointNotActivate e)
-            {
-                // 未激活点位的详情面板会遮挡后续地图操作，重试前先关闭。
-                // 最后一次失败也需要执行清理，避免影响脚本组中的下一个任务。
-                InputHub.Foreground.Keyboard.KeyPress(User32.VK.VK_ESCAPE);
-                await Delay(300, ct);
-                // throw; // 不抛出异常，继续重试
-                Logger.LogWarning(e.Message + "  重试");
-            }
-            catch (Exception e) when (IsTaskStopException(e))
-            {
-                throw;
-            }
-            catch (Exception e)
-            {
-                Logger.LogDebug(e, e.Message);
-                Logger.LogWarning("传送异常" + e.Message);
-                await Delay(300, ct);
-            }
-        }
-
-        throw new InvalidOperationException("传送失败");
-    }
+    private Task<(double, double)> TpWithTimeout(double tpX, double tpY, string mapName, bool force, int timeoutMs,
+        bool classifyFailure = false) =>
+        TeleportBudget.RunAsync(token => new TpTask(token).TpWithRetries(tpX, tpY, mapName, force, classifyFailure), timeoutMs, ct);
 
     /// <summary>
     /// 移动地图到指定传送点位置
@@ -1291,7 +1250,7 @@ public class TpTask
         await MoveMapTo(x, y, mapName);
         if (!TryGetClickableTargetPosition(mapName, x, y, 0, out _, out var clickX, out var clickY))
         {
-            throw new Exception($"目标点未移动到可点击区域：map={mapName}, target=({x:0.##},{y:0.##})");
+            throw new TeleportFailureException($"目标点未移动到可点击区域：map={mapName}, target=({x:0.##},{y:0.##})");
         }
 
         using var clickCapture = CaptureToRectArea();
@@ -1430,12 +1389,12 @@ public class TpTask
                 moveState = GetMoveMapState(newCenterPoint, x, y, currentZoomLevel);
                 exceptionTimes = 0;
             }
-            catch (MapPositionNotRecognizedException)
+            catch (MapPositionNotRecognizedException error) when (!_classifyTeleportFailure || error.InnerException is null)
             {
                 exceptionTimes++;
                 if (exceptionTimes > 5)
                 {
-                    throw new Exception("多次中心点识别失败或异常，惯性推算失效，重新传送");
+                    throw new TeleportFailureException("多次中心点识别失败或异常，惯性推算失效，重新传送");
                 }
 
                 moveState = GetMoveMapState(predictedPoint, x, y, currentZoomLevel);
@@ -1500,7 +1459,7 @@ public class TpTask
             moveState = GetMoveMapState(currentCenter, desiredCenter.Value.X, desiredCenter.Value.Y, currentZoomLevel);
             return true;
         }
-        catch
+        catch (Exception error) when (!_classifyTeleportFailure || IsKnownTeleportFailure(error))
         {
             return false;
         }
@@ -1519,7 +1478,7 @@ public class TpTask
             moveState = GetMoveMapState(mapCenterPoint, x, y, currentZoomLevel);
             return true;
         }
-        catch (MapPositionNotRecognizedException)
+        catch (MapPositionNotRecognizedException error) when (!_classifyTeleportFailure || error.InnerException is null)
         {
             moveState = default;
             return false;
@@ -1565,7 +1524,7 @@ public class TpTask
             return (recoveredState.MoveState, recoveredState.ZoomLevel);
         }
 
-        throw new Exception("初始识别失败且切换区域后依然无效");
+        throw new TeleportFailureException("初始识别失败且切换区域后依然无效");
     }
 
     private async Task<(bool Success, MapMoveState MoveState, double ZoomLevel)> TryRecoverMoveMapStateByZoom(
@@ -2101,51 +2060,10 @@ public class TpTask
         {
             return GetBigMapCenterPoint(mapName);
         }
-        catch
+        catch (Exception error) when (!_classifyTeleportFailure || IsKnownTeleportFailure(error))
         {
             return null;
         }
-    }
-
-    public Rect GetBigMapRect(string mapName)
-    {
-        var rect = new Rect();
-        NewRetry.Do(() =>
-        {
-            // 判断是否在地图界面
-            using var ra = CaptureToRectArea();
-            using var mapScaleButtonRa = ra.Find(GetQuickTeleportRecognitionObject("MapScaleButton", ra));
-            if (mapScaleButtonRa.IsExist())
-            {
-                try
-                {
-                    if (!TryGetBigMapRect(ra, mapName, out rect))
-                    {
-                        throw new RetryException("大地图范围识别失败");
-                    }
-                }
-                catch (Exception)
-                {
-                    rect = default; // 发生异常视为识别失败
-                }
-
-                if (rect == default)
-                {
-                    throw new RetryException("识别大地图位置失败");
-                }
-            }
-            else
-            {
-                throw new RetryException("当前不在地图界面");
-            }
-        }, TimeSpan.FromMilliseconds(BigMapRectRetryIntervalMs), 5);
-
-        if (rect == default)
-        {
-            throw new InvalidOperationException("多次重试后，识别大地图位置失败");
-        }
-
-        return rect;
     }
 
     public Point2f GetBigMapCenterPoint(string mapName)
@@ -2171,7 +2089,7 @@ public class TpTask
         }
         else
         {
-            throw new InvalidOperationException("当前不在地图界面");
+            throw new TeleportFailureException("当前不在地图界面");
         }
     }
 
@@ -2223,7 +2141,7 @@ public class TpTask
             bigMapInAllMapRect = recognizedRect;
             return true;
         }
-        catch
+        catch (Exception error) when (!_classifyTeleportFailure || IsKnownTeleportFailure(error))
         {
             return false;
         }
@@ -2419,7 +2337,7 @@ public class TpTask
             return;
         }
 
-        throw new Exception($"切换区域[{areaName}]失败");
+        throw new TeleportFailureException($"切换区域[{areaName}]失败");
     }
 
     private async Task<bool> TrySwitchArea(string areaName)
@@ -2608,7 +2526,7 @@ public class TpTask
         }
 
         Logger.LogWarning("切换到地表地图后校验超时");
-        throw new TimeoutException("切换到地表地图后校验超时");
+        throw new TeleportFailureException("切换到地表地图后校验超时");
     }
 
     private async Task<TeleportPanelResult> HandleTeleportPanel(
@@ -3505,11 +3423,6 @@ public class TpTask
         return !double.IsNaN(value) && !double.IsInfinity(value);
     }
 
-    private static bool IsTaskStopException(Exception exception)
-    {
-        return exception is NormalEndException or OperationCanceledException;
-    }
-
     /// <summary>
     /// 给定的映射关系可以表示成 (x, y) 对的形式，其中 x 是输入值，y 是输出值
     ///    1 - 1
@@ -3527,16 +3440,5 @@ public class TpTask
         var s = Bv.GetBigMapScale(region);
         // 1~6 的缩放等级
         return (-5 * s) + 6;
-    }
-}
-
-public class MapPositionNotRecognizedException : Exception
-{
-    public MapPositionNotRecognizedException(string message) : base(message)
-    {
-    }
-
-    public MapPositionNotRecognizedException(string message, Exception innerException) : base(message, innerException)
-    {
     }
 }

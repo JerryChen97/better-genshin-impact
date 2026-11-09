@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BetterGenshinImpact.GameTask.AutoPathing;
+using BetterGenshinImpact.GameTask.AutoTrackPath;
 using BetterGenshinImpact.GameTask.AutoPathing.Model;
 using System.Threading.Tasks;
 using BetterGenshinImpact.Core.Config;
@@ -24,6 +25,7 @@ public partial class AutoPathingScript
     private bool _pointLootEnabled = true;
     private PointLootSession? _pointLootSession;
     private string? _pointLootRouteSha256;
+    private readonly PointLootTeleportRecovery _teleportRecovery = new();
 
     public AutoPathingScript(string rootPath, object? config)
     {
@@ -76,6 +78,16 @@ public partial class AutoPathingScript
     public Task<string> RunWithLootPolicyResult(string routeJson, string policyJson) =>
         RunWithLootPolicyCore(routeJson, policyJson, true);
 
+    /// <summary>Read-only protocol negotiation; budgets are shared with the actual teleport executor.</summary>
+    public string GetPointLootCapabilities() => JsonSerializer.Serialize(new
+    {
+        schema = 1,
+        routeTeleportTimeoutMs = TeleportBudget.RouteTimeoutMs,
+        statueTeleportTimeoutMs = TeleportBudget.StatueTimeoutMs,
+        routeLocalFailureCodes = Enum.GetValues<PointLootRouteFailureReason>()
+            .Select(PointLootRouteFailureException.CodeFor).ToArray()
+    });
+
     private async Task<string> RunWithLootPolicyCore(string routeJson, string policyJson, bool returnLocalFailure)
     {
         EnterRun();
@@ -97,7 +109,12 @@ public partial class AutoPathingScript
             using var registration = ct.Register(session.Revoke);
             ct.ThrowIfCancellationRequested();
             // 逐点跳过只对返回结构化结果的新接口开放；旧接口保持失败即拒绝的契约。
-            executor = new PathExecutor(ct) { PointLootSession = session, PointSkipEnabled = returnLocalFailure };
+            executor = new PathExecutor(ct)
+            {
+                PointLootSession = session,
+                PointSkipEnabled = returnLocalFailure,
+                TeleportRecovery = returnLocalFailure ? _teleportRecovery : null
+            };
             if (_config is PathingPartyConfig partyConfig) executor.PartyConfig = partyConfig;
             using var recoveryScope = PointLootRecoveryScope.Enter();
             try

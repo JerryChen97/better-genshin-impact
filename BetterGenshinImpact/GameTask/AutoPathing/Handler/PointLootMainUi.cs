@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BetterGenshinImpact.Core.Input;
@@ -5,6 +6,7 @@ using BetterGenshinImpact.GameTask.AutoTrackPath;
 using BetterGenshinImpact.GameTask.Common.BgiVision;
 using BetterGenshinImpact.GameTask.Common.Job;
 using Microsoft.Extensions.Logging;
+using Vanara.PInvoke;
 using static BetterGenshinImpact.GameTask.Common.TaskControl;
 
 namespace BetterGenshinImpact.GameTask.AutoPathing.Handler;
@@ -51,6 +53,38 @@ internal static class PointLootMainUi
     {
         if (await ConfirmAsync(ct, requireHealthy: true)) return true;
         Logger.LogWarning("回七天神像后未能确认主界面稳定且血量正常，按普通重试处理");
+        return false;
+    }
+
+    /// <summary>
+    /// Route teleport failures may leave a held map drag, an open map or a loading screen.
+    /// Only a freshly recognized map receives ESC; unknown screens receive no input.
+    /// Two bounded observation rounds allow loading to settle. No Enter or dialog clicks.
+    /// </summary>
+    internal static async Task<bool> RestoreAfterRouteTeleportFailureAsync(Exception failure, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Logger.LogDebug(failure, "路线传送失败，释放输入并确认主界面");
+        InputHub.ReleaseAll();
+        await Delay(100, ct);
+        for (var round = 0; round < 2; round++)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool mapOpen;
+            using (var capture = CaptureToRectArea())
+                mapOpen = Bv.IsInBigMapUi(capture) && !Bv.IsInRevivePrompt(capture);
+            ct.ThrowIfCancellationRequested();
+            if (mapOpen)
+            {
+                InputHub.Foreground.Keyboard.KeyPress(User32.VK.VK_ESCAPE);
+                await Delay(900, ct);
+            }
+            var confirmed = await ConfirmAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            if (confirmed) return true;
+        }
+
+        Logger.LogWarning("路线传送失败后未能确认主界面，停止配置组");
         return false;
     }
 

@@ -29,6 +29,9 @@ internal static class StatueTimeoutGuard
 
 internal static class TeleportBudget
 {
+    internal const int RouteTimeoutMs = 60_000;
+    internal const int StatueTimeoutMs = 120_000;
+
     /// <summary>
     /// 在独立的时间预算内执行一次传送。预算到点时，内部可能在 await 中抛出 OperationCanceledException，
     /// 也可能在 TaskControl.Delay 入口抛出 NormalEndException("取消自动任务")，和手动停止一模一样。

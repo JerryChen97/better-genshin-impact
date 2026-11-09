@@ -10,6 +10,8 @@
     <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Model/PointLootRouteFailureException.cs" Link="Production/PointLootRouteFailureException.cs" />
     <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Model/PointLootRecoveryScope.cs" Link="Production/PointLootRecoveryScope.cs" />
     <Compile Include="../../BetterGenshinImpact/GameTask/AutoTrackPath/TeleportTimeout.cs" Link="Production/TeleportTimeout.cs" />
+    <Compile Include="../../BetterGenshinImpact/GameTask/AutoTrackPath/TeleportFailureException.cs" Link="Production/TeleportFailureException.cs" />
+    <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Model/PointLootTeleportRecovery.cs" Link="Production/PointLootTeleportRecovery.cs" />
     <Compile Include="../../BetterGenshinImpact/Core/Script/Dependence/AutoPathingScript.cs" Link="Production/AutoPathingScript.cs" />
     <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Handler/PointLootGatherTask.cs" Link="Production/PointLootGatherTask.cs" />
     <Compile Include="../../BetterGenshinImpact/GameTask/AutoPathing/Handler/PointLootMainUi.cs" Link="Production/PointLootMainUi.cs" />

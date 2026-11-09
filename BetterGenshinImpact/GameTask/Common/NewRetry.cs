@@ -30,6 +30,17 @@ public static class NewRetry
         }, retryInterval, maxAttemptCount);
     }
 
+    /// <summary>Retries only errors owned by the caller; unrelated RetryException instances propagate unchanged.</summary>
+    internal static void Do(Action action, TimeSpan retryInterval, int maxAttemptCount,
+        Func<RetryException, bool> shouldRetry)
+    {
+        _ = Do<object?>(() =>
+        {
+            action();
+            return null;
+        }, retryInterval, maxAttemptCount, shouldRetry);
+    }
+
     /// <summary>
     /// 重试指定操作，若抛出 RetryException 则在指定间隔后重试，最多尝试 maxAttemptCount 次，返回操作结果。
     /// </summary>
@@ -39,6 +50,10 @@ public static class NewRetry
     /// <param name="maxAttemptCount">最大尝试次数</param>
     /// <returns>操作结果</returns>
     public static T Do<T>(Func<T> action, TimeSpan retryInterval, int maxAttemptCount = 3)
+        => Do(action, retryInterval, maxAttemptCount, static _ => true);
+
+    internal static T Do<T>(Func<T> action, TimeSpan retryInterval, int maxAttemptCount,
+        Func<RetryException, bool> shouldRetry)
     {
         List<System.Exception> exceptions = [];
 
@@ -53,7 +68,7 @@ public static class NewRetry
 
                 return action();
             }
-            catch (RetryException ex)
+            catch (RetryException ex) when (shouldRetry(ex))
             {
                 exceptions.Add(ex);
             }

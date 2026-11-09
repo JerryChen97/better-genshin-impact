@@ -44,6 +44,11 @@ void Clean(AutoPathingScript bridge, int cleared)
 }
 
 var successBridge = Fresh();
+var capabilities = JsonDocument.Parse(successBridge.GetPointLootCapabilities()).RootElement;
+Check(capabilities.GetProperty("schema").GetInt32() == 1 && capabilities.GetProperty("routeTeleportTimeoutMs").GetInt32() == 60_000
+    && capabilities.GetProperty("statueTeleportTimeoutMs").GetInt32() == 120_000, "Negotiated budgets match the executor constants");
+Check(capabilities.GetProperty("routeLocalFailureCodes").EnumerateArray().Select(x => x.GetString()).Order().SequenceEqual(
+    Enum.GetValues<PointLootRouteFailureReason>().Select(PointLootRouteFailureException.CodeFor).Order()), "Negotiated failures match the closed production classifier");
 var success = JsonDocument.Parse(await successBridge.RunWithLootPolicyResult(route, plan)).RootElement;
 Check(success.EnumerateObject().Count() == 5, "Exact result fields");
 Check(success.GetProperty("schema").GetInt32() == 1 && success.GetProperty("success").GetBoolean(), "Explicit success schema");

@@ -13,10 +13,12 @@ git apply <本目录绝对路径>/integration.patch
 
 在脚本副本目录运行以上命令。将本目录的三个 `point-loot-*.js` 和 `point-loot-settings.json` 复制到脚本副本，保留原 metadata、catalog、模板、路线、入口和记录。将名单示例作为 `User/global-pick-rules.json` 的起点，合并已有全局规则，不能覆盖用户的其他禁捡项。
 
-只有在用户授权且运行任务结束后，才能把配套程序、脚本和名单作为一组安装。回退也应还原整组，旧主程序没有新 SDK。检查新 manifest 版本为 `2.13.4-local.point-loot.5-global.2`，启动时缺少 SDK 或无效名单会拒绝执行。不要重建 metadata。
+只有在用户授权且运行任务结束后，才能把配套程序、脚本和名单作为一组安装。回退也应还原整组，旧主程序没有新 SDK。检查新 manifest 版本为 `2.13.4-local.point-loot.6-global.2`，启动时缺少 SDK 或无效名单会拒绝执行。不要重建 metadata。
 
 应用全局白名单还由原生兜底触发器识别；JS 模板通道仅使用已有 catalog 中的模板，不擅自为未知物品生成模板。白名单不创建战后窗口、额外聚拢或滚动，暂停仍有效。
 
 配套脚本通过 `pathingScript.tryPickup` 将目标、许可来源和路线/窗口身份交给原生输入临界区，拒绝旧许可按到新选中行。旧 `alwaysAllowedItemIds`/`deniedItemIds` 不再作为应用全局规则，迁移时须把需要保留的名称合并到 `User/global-pick-rules.json`；本目录设置只保留四个逐点开关/窗口字段。
 
 离线检查：在仓库根目录运行 `node Test/GlobalPickupJs.Regression/verify.cjs`。测试使用合成路线和目录，没有游戏输入。
+
+本分支同时提供 pointloot.6 安全续组。runtime 在路线开始前核验原生能力协议和60/120秒预算，新增两个路线传送局部失败码。应用全局名单逻辑保持，失败不记完成/CD，持续故障或用户停止会终止组。

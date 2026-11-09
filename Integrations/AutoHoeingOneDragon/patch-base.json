@@ -1,16 +1,16 @@
 {
   "requiredScriptBase": "2.13.4-local.point-loot.5-food.1",
-  "targetScriptVersion": "2.13.4-local.point-loot.5-global.2",
+  "targetScriptVersion": "2.13.4-local.point-loot.6-global.2",
   "files": [
     {
       "file": "main.js",
       "beforeSha256": "6ef5718eaedccae2cbeee457d4f778e3a80f9e3587db2562eb3eff01d75adaed",
-      "afterLfSha256": "25867afad3b0ef286bbbdafd9bfa95b2d7590dfc7a7c4245c323e88fd1e299c0"
+      "afterLfSha256": "7af5ba358a275e7cc458dde023555beeff69d4373901fd7df2fab482e3daf473"
     },
     {
       "file": "manifest.json",
       "beforeSha256": "fb10833977dcb81d67548470f48b29e70281f16ef30d09069ac3b7b956ee3a22",
-      "afterLfSha256": "6d3c490649e852e1c42905e3faa9132c2a0b44602fbc172442b169f8e65a9771"
+      "afterLfSha256": "97f431e7856219536c0ccf63861d881a6dad2e2f094577eb521ccc8dbdbb4c4d"
     }
   ]
 }
