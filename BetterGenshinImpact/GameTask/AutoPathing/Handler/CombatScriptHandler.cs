@@ -24,7 +24,8 @@ public class CombatScriptHandler : IActionHandler
             }
 
             combatScenes.BeforeTask(ct);
-            await CombatScriptExecutor.ExecuteAsync(combatScript, ct, Logger, combatScenes);
+            await CombatScriptExecutor.ExecuteAsync(combatScript, ct, Logger, combatScenes,
+                propagateErrors: PointLootRecoveryScope.IsActive);
         }
         else
         {

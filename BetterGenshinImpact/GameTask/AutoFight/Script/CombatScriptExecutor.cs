@@ -21,11 +21,13 @@ public static class CombatScriptExecutor
     /// 可选。传了则使用现成的 CombatScenes（由调用方管理生命周期）；
     /// 不传则在内部通过截图自动创建并管理生命周期。
     /// </param>
+    /// <param name="propagateErrors">策略路线传入 true，防止未验证的恢复或传送失败被记录后继续执行。</param>
     public static async Task ExecuteAsync(
         CombatScript combatScript,
         CancellationToken ct,
         ILogger logger,
-        CombatScenes? combatScenes = null)
+        CombatScenes? combatScenes = null,
+        bool propagateErrors = false)
     {
         var ownsScenes = false;
         try
@@ -80,6 +82,7 @@ public static class CombatScriptExecutor
             }
             catch (Exception e)
             {
+                if (propagateErrors) throw;
                 logger.LogError(e, "执行简易策略脚本时发生错误！");
             }
         }

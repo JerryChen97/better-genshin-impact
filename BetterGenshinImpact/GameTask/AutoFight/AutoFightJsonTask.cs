@@ -597,7 +597,8 @@ public class AutoFightJsonTask : ISoloTask
 
             try
             {
-                await CombatScriptExecutor.ExecuteAsync(combatScript, _ct, Logger, combatScenes);
+                await CombatScriptExecutor.ExecuteAsync(combatScript, _ct, Logger, combatScenes,
+                    propagateErrors: _taskParam.PointLootPolicyActive);
             }
             catch (RetryException e)
             {

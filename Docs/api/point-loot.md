@@ -2,6 +2,8 @@
 
 本分支把本地 pointloot.5 原生补丁整理到更新后的官方 `main`，提供按战斗点授权拾取、逐点跳过和七天神像传送恢复。工程默认版本号沿用上游；`pointloot.5` 表示这组本地补丁的版本。
 
+发布审查另修复了共用简易策略执行器的异常传播：策略路线的 JSON 前置动作和 `combat_script` 不再吞掉未验证恢复、传送失败等异常。普通调用保留原有行为；这项修复需随新构建部署后才会在游戏中生效。
+
 功能需要配套的 JavaScript 调用方。原生接口不负责选线、账户冷却记录、怪物标签或拾取黑名单，调用方需要认识 `completed-with-skips` 并校验结构化结果。
 
 ## 接口与结果
@@ -52,6 +54,7 @@ dotnet build BetterGenshinImpact.sln -c Debug
 dotnet run --project Test/PointLootRouteResult.Regression
 dotnet run --project Test/PointLootBridge.Regression
 dotnet run --project Test/PointSkip.Regression
+dotnet run --project Test/CombatScriptExecutor.Regression
 ```
 
-三个回归程序覆盖结果契约、许可生命周期、恢复边界和跳过计划，其中部分执行器与游戏交互使用替身。通过这些检查不等于验证了真实游戏中的识图、掉落拾取或一次完整的一条龙运行。
+四个回归程序覆盖结果契约、许可生命周期、恢复边界、跳过计划和简易策略异常传播，其中部分执行器与游戏交互使用替身。通过这些检查不等于验证了真实游戏中的识图、掉落拾取或一次完整的一条龙运行。
