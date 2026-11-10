@@ -6,6 +6,29 @@
     "sha256": "19824609f8a2338573425762743647c5b9597c94bee6afa5d0fe9277e60c7749",
     "productionTree": "4d39915327a782f9ad9e91511a536813772a7381"
   },
+  "pendingNative": {
+    "state": "built-not-installed",
+    "upstreamCommit": "f5e9e4498543d9475c7bad60bf39388ab107692b",
+    "version": "0.66.3-local.pointloot.6-globalpick.2-mapmatch.1-tpicons.1",
+    "productionTree": "6690117f92d9aad040aff82597be6d06d2d18cab",
+    "installedSourceCommit": "08ffc19c8d0dd01af843574e4266aa65297eded9",
+    "installFiles": [
+      "BetterGI.exe",
+      "GameTask/QuickTeleport/Assets/1920x1080/SnezhnayaMeetingPoint.png",
+      "GameTask/QuickTeleport/Assets/1920x1080/StatueOfTheSeven.png",
+      "GameTask/QuickTeleport/Assets/1920x1080/StygianOnslaught.png",
+      "GameTask/QuickTeleport/Assets/1920x1080/TheCatsTail.png",
+      "GameTask/QuickTeleport/Assets/1920x1080/Train.png"
+    ],
+    "validation": {
+      "debugBuildErrors": 0,
+      "releasePublishSucceeded": true,
+      "upstreamImagesVerified": 5,
+      "teleportRegressionChecks": 91,
+      "realOpenCvChecks": 16,
+      "liveNewIconAcceptance": false
+    }
+  },
   "autoHoeing": {
     "version": "2.13.4-local.point-loot.6-global.2",
     "integrationTree": "730420b44f901b023be9b35d54b257db173e8909",
