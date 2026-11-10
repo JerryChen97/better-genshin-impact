@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <FeatureMatchSource Condition="'$(FeatureMatchSource)' == ''">../../BetterGenshinImpact/Core/Recognition/OpenCv/FeatureMatch/Feature2DExtensions.cs</FeatureMatchSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.11.0.20250507" />
+    <Compile Include="$(FeatureMatchSource)" Link="Production/Feature2DExtensions.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Recognition/OpenCv/FeatureMatch/DescriptorMatcherType.cs" Link="Production/DescriptorMatcherType.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Recognition/OpenCv/FeatureMatch/KeyPointFeatureBlockHelper.cs" Link="Production/KeyPointFeatureBlockHelper.cs" />
+    <Compile Include="../../BetterGenshinImpact/Core/Recognition/OpenCv/Model/KeyPointFeatureBlock.cs" Link="Production/KeyPointFeatureBlock.cs" />
+    <Compile Include="../../BetterGenshinImpact/Helpers/SpeedTimer.cs" Link="Production/SpeedTimer.cs" />
+  </ItemGroup>
+</Project>

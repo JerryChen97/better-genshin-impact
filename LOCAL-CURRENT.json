@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "branch": "local/current",
+  "native": {
+    "version": "0.66.3-local.pointloot.6-globalpick.2-mapmatch.1",
+    "sha256": "19824609f8a2338573425762743647c5b9597c94bee6afa5d0fe9277e60c7749",
+    "productionTree": "4d39915327a782f9ad9e91511a536813772a7381"
+  },
+  "autoHoeing": {
+    "version": "2.13.4-local.point-loot.6-global.2",
+    "integrationTree": "730420b44f901b023be9b35d54b257db173e8909",
+    "files": [
+      {
+        "file": "User/JsScript/AutoHoeingOneDragon/main.js",
+        "lfSha256": "7af5ba358a275e7cc458dde023555beeff69d4373901fd7df2fab482e3daf473"
+      },
+      {
+        "file": "User/JsScript/AutoHoeingOneDragon/manifest.json",
+        "lfSha256": "97f431e7856219536c0ccf63861d881a6dad2e2f094577eb521ccc8dbdbb4c4d"
+      },
+      {
+        "file": "User/JsScript/AutoHoeingOneDragon/point-loot-entry.js",
+        "lfSha256": "0283cb536a42c4c7410c1e957bfcb5780d7a3b514d8da7ed2eb4323f34e574cb"
+      },
+      {
+        "file": "User/JsScript/AutoHoeingOneDragon/point-loot-runtime.js",
+        "lfSha256": "0e3acccce0486abe4f9109d122a567664cf6b27efcd19e5e4e97f4f67f08df94"
+      },
+      {
+        "file": "User/JsScript/AutoHoeingOneDragon/point-loot-policy.js",
+        "lfSha256": "a997f87be21e136da20d38b65904ba160637a629b00b4fb62debbb9efcd2318a"
+      },
+      {
+        "file": "User/JsScript/AutoHoeingOneDragon/point-loot-picker.js",
+        "lfSha256": "a44ec2b6efd82fa263ce4ab49bbfbef5abedb420e9365ac0905f7fc0bc663f87"
+      }
+    ]
+  },
+  "lineage": [
+    {
+      "formerBranch": "feature/pointloot-v5-20261108",
+      "commit": "13a2e113181a8f896a64ad7cc69f981148fe0813",
+      "archiveTag": "archive/20261109/pointloot-v5"
+    },
+    {
+      "formerBranch": "feature/global-pickup-rules-20261109",
+      "commit": "8ee937958e1ea99e4c27b30b3e54f7c85f2d823f",
+      "archiveTag": "archive/20261109/global-pickup-rules"
+    },
+    {
+      "formerBranch": "feature/pointloot-v6-global-20261109",
+      "commit": "d811d5d5cdfe93dc02fab7eb57f50a35aa90cbdd",
+      "archiveTag": "archive/20261109/pointloot-v6-global"
+    }
+  ],
+  "validation": {
+    "offlineChecks": 802,
+    "installedSdkChecks": 28,
+    "realOpenCvBefore": { "passed": 8, "failed": 8 },
+    "realOpenCvAfter": { "passed": 16, "failed": 0 },
+    "liveSparseFrameInduced": false,
+    "wholeResumeRunCompletedAtPublication": false
+  }
+}

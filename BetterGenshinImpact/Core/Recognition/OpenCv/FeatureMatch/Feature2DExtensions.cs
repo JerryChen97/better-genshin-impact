@@ -103,12 +103,18 @@ public static class Feature2DExtensions
         // algorithm RANSAC Filter the matched results
         var pQuery = pointsQuery.ToPoint2d();
         var pTrain = pointsTrain.ToPoint2d();
-        var outMask = new Mat();
-        // If the original matching result is null, Skip the filtering step
-        if (pQuery.Count > 0 && pTrain.Count > 0)
+        // A homography needs at least four corresponding pairs. Sparse frames are
+        // recognition misses, so callers can retry instead of receiving a native error.
+        if (pQuery.Count >= 4 && pTrain.Count >= 4)
         {
-            var hMat = Cv2.FindHomography(pQuery, pTrain, HomographyMethods.Ransac, mask: outMask);
+            using var outMask = new Mat();
+            using var hMat = Cv2.FindHomography(pQuery, pTrain, HomographyMethods.Ransac, mask: outMask);
             speedTimer.Record("FindHomography");
+            if (hMat.Empty())
+            {
+                speedTimer.DebugPrint();
+                return new Point2f();
+            }
 
             // 1. 计算查询图像的中心点
             var queryCenterPoint = new Point2f(queryMat.Cols / 2f, queryMat.Rows / 2f);

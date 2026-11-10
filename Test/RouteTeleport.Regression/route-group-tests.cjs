@@ -100,6 +100,18 @@ function fixture(outcomes) {
         assert.deepEqual(plain(f.pathings[0]), first);
         assert(f.pathings.slice(1).every(r => r.cdTime !== first.cdTime));
     });
+    await test('A018-style failure at route 8/258 preserves failed record and reaches all 250 following routes', async () => {
+        const f = fixture([...Array(7).fill('completed'), 'teleport-failed', ...Array(250).fill('completed')]);
+        const failedBefore = plain(f.pathings[7]);
+        await f.group();
+        assert.equal(f.seen.calls.length, 258);
+        assert.equal(f.seen.writes.length, 257);
+        assert.deepEqual(plain(f.pathings[7]), failedBefore);
+        assert(f.pathings.filter((_, index) => index !== 7).every(route => route.cdTime !== failedBefore.cdTime));
+        assert(f.seen.writes.every(snapshot => JSON.stringify(snapshot[7]) === JSON.stringify(failedBefore)));
+        assert.equal(f.runtime.globalContext(), null);
+        assert.equal(f.ctx.state.running, false);
+    });
     for (const error of ['F11 cancelled', 'unconfirmed main UI', 'unknown engine failure', 'persistent teleport failure']) {
         await test(error + ': fatal native exception stops before next route and cannot write CD', async () => {
             const f = fixture([new Error(error), 'completed']), before = plain(f.pathings);
